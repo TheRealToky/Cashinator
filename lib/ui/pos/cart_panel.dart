@@ -269,12 +269,23 @@ class _CartFooter extends StatelessWidget {
                 'Total',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
               ),
-              Text(
-                formatRwfWithUnit(cart.total),
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: scheme.primary,
+              const SizedBox(width: 12),
+              // The total must never be clipped — it is the number the customer
+              // is told to pay. A six-figure basket ("135 000 RWF") is wider
+              // than this panel at 26pt, so let it shrink rather than overflow.
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    formatRwfWithUnit(cart.total),
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: scheme.primary,
+                    ),
+                  ),
                 ),
               ),
             ],

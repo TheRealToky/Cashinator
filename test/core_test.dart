@@ -37,6 +37,17 @@ void main() {
       expect(parseIsoDate('2026-06-19'), DateTime(2026, 6, 19));
     });
 
+    test('moves the clock on a day without moving the date', () {
+      final day = DateTime(2026, 6, 19, 16, 44, 30);
+      final corrected = combineDateAndTime(day, 9, 5);
+
+      expect(formatIsoDate(corrected), formatIsoDate(day));
+      expect(formatHourMinute(corrected), '09:05');
+      // Seconds are dropped: the export carries HH:MM, so keeping them would
+      // only make two sales at "09:05" sort by something invisible.
+      expect(corrected.second, 0);
+    });
+
     test('returns null on malformed input rather than throwing', () {
       expect(parseIsoDate('not-a-date'), isNull);
       expect(parseIsoDate('2026-13-01'), isNull);

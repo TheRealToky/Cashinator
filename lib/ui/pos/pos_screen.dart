@@ -52,20 +52,23 @@ class _PosScreenState extends State<PosScreen> {
       return;
     }
 
-    final method = await PaymentSheet.show(
+    final choice = await PaymentSheet.show(
       context,
       total: cart.total,
       itemCount: cart.itemCount,
       methods: catalog.activeMethods,
     );
-    if (method == null || !mounted) return;
+    if (choice == null || !mounted) return;
 
     setState(() => _saving = true);
 
     try {
       final order = await context.read<OrderRepository>().createOrder(
             lines: cart.toDraftLines(),
-            paymentMethod: method,
+            paymentMethod: choice.method,
+            // Null unless the cashier set a time by hand, which leaves the
+            // repository to stamp the sale as it writes it.
+            now: choice.at,
           );
 
       if (!mounted) return;
@@ -79,7 +82,10 @@ class _PosScreenState extends State<PosScreen> {
       showAppSnackBar(
         context,
         'Order ${order.orderLabel} recorded · '
-        '${formatRwfWithUnit(total)} · ${method.name}',
+        '${formatRwfWithUnit(total)} · ${choice.method.name}'
+        // Read the edited time back, so a mistyped one is caught now rather
+        // than at the end of the day.
+        '${choice.isTimeCustom ? ' · at ${order.timeLabel}' : ''}',
       );
     } on AppException catch (error) {
       if (!mounted) return;

@@ -38,6 +38,15 @@ DateTime? parseIsoDate(String value) {
   return DateTime(year, month, day);
 }
 
+/// [day]'s calendar date at [hour]:[minute], local time.
+///
+/// Used when a cashier corrects the time on a sale: only the clock moves, never
+/// the date, so a corrected sale can never land on another day's order sequence
+/// or day total. Values outside 0–23 / 0–59 roll over the way [DateTime] does,
+/// so callers are expected to have validated them.
+DateTime combineDateAndTime(DateTime day, int hour, int minute) =>
+    DateTime(day.year, day.month, day.day, hour, minute);
+
 /// Strips the time component, giving the local-midnight instant for [moment].
 DateTime startOfDay(DateTime moment) =>
     DateTime(moment.year, moment.month, moment.day);
