@@ -15,13 +15,18 @@ class ProductRepository {
 
   Database get _db => _database.db;
 
-  /// Products shown on the sale grid, in the order management arranged them.
+  /// Products shown on the sale grid, alphabetically.
+  ///
+  /// Name order beats `sort_order` here: the grid is scanned by eye during a
+  /// sale, so a cashier who knows the product name can find it without knowing
+  /// which category it was filed under. It also keeps newly added products in
+  /// place instead of dropping them at the front on their default sort_order.
   Future<List<Product>> activeProducts() async {
     try {
       final rows = await _db.query(
         'products',
         where: 'active = 1',
-        orderBy: 'sort_order ASC, name COLLATE NOCASE ASC',
+        orderBy: 'name COLLATE NOCASE ASC',
       );
       return rows.map(Product.fromRow).toList(growable: false);
     } on DatabaseException catch (error) {
@@ -131,7 +136,8 @@ class ProductRepository {
     }
   }
 
-  /// Persists a manual reordering of the sale grid.
+  /// Persists a manual product ordering. Unused by the sale grid, which is
+  /// alphabetical; `sort_order` now only affects the back-office list.
   Future<void> reorder(List<int> productIdsInOrder) async {
     await _database.transaction(
       (txn) async {

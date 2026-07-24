@@ -315,6 +315,22 @@ void main() {
       expect(all.map((p) => p.id), contains(target.id));
     });
 
+    test('the till grid is alphabetical, ignoring sort_order', () async {
+      // A new product carries the default sort_order of 0, which used to drag
+      // it to the head of the grid no matter what it was called.
+      await products.create(
+        const Product(id: null, name: 'Zzz late arrival', price: 100,
+            active: true),
+      );
+
+      final names = (await products.activeProducts())
+          .map((p) => p.name.toLowerCase())
+          .toList();
+
+      expect(names, equals([...names]..sort()));
+      expect(names.last, 'zzz late arrival');
+    });
+
     test('rejects an empty name', () async {
       expect(
         () => products.create(
