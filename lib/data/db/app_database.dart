@@ -28,6 +28,7 @@ class AppDatabase {
   /// screen. Ship the tablet with these changed.
   static const String defaultStaffPin = '1234';
   static const String defaultManagerPin = '4321';
+  static const String defaultSupervisorPin = '9876';
 
   /// Opens (and if needed creates) the database.
   ///
@@ -77,8 +78,29 @@ class AppDatabase {
   }
 
   static Future<void> _migrate(Database db, int from, int to) async {
-    // Version 1 is the initial schema, so there is nothing to migrate yet.
-    // Future versions add `if (from < n) { ... }` blocks here, in order.
+    // Each block brings a database one version forward, in order, so a device
+    // several versions behind is upgraded step by step.
+    if (from < 2) {
+      final batch = db.batch();
+      for (final statement in kMigrateV2Statements) {
+        batch.execute(statement);
+      }
+      await batch.commit(noResult: true);
+
+      // The supervisor arrives on the shipped default PIN; the back office
+      // changes it from the Change PIN screen. Ignore a conflict so re-running
+      // the migration can't fail on the unique role.
+      final supervisor = hashPin(defaultSupervisorPin);
+      await db.insert(
+        'app_users',
+        {
+          'role': 'supervisor',
+          'pin_hash': supervisor.hash,
+          'pin_salt': supervisor.salt,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
   }
 
   static Future<void> _seed(Database db) async {
@@ -93,6 +115,7 @@ class AppDatabase {
 
     final staff = hashPin(defaultStaffPin);
     final manager = hashPin(defaultManagerPin);
+    final supervisor = hashPin(defaultSupervisorPin);
     batch.insert('app_users', {
       'role': 'staff',
       'pin_hash': staff.hash,
@@ -102,6 +125,11 @@ class AppDatabase {
       'role': 'manager',
       'pin_hash': manager.hash,
       'pin_salt': manager.salt,
+    });
+    batch.insert('app_users', {
+      'role': 'supervisor',
+      'pin_hash': supervisor.hash,
+      'pin_salt': supervisor.salt,
     });
 
     await batch.commit(noResult: true);

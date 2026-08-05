@@ -5,11 +5,20 @@ import '../data/db/app_database.dart';
 
 /// Who is using the tablet.
 ///
-/// There are exactly two roles and no user accounts — the shop has a counter
-/// and an office, not a staff directory.
+/// There are no per-person user accounts — the shop has a counter and an
+/// office, not a staff directory. Instead there are three fixed roles, each
+/// with its own PIN:
+///
+/// * [staff] runs the till (front office).
+/// * [manager] owns the back office and can do everything in it.
+/// * [supervisor] is a limited back-office login: it can browse order history,
+///   void orders and run the Excel export, but not touch the catalogue,
+///   payment methods or any PIN. It exists so a shift lead can correct sales
+///   without holding the keys to prices and access.
 enum UserRole {
   staff('staff'),
-  manager('manager');
+  manager('manager'),
+  supervisor('supervisor');
 
   const UserRole(this.wireName);
 
@@ -18,11 +27,36 @@ enum UserRole {
   String get label => switch (this) {
         UserRole.staff => 'Front office',
         UserRole.manager => 'Back office',
+        UserRole.supervisor => 'Supervisor',
       };
+
+  /// Whether this role lands in the back office instead of the till.
+  bool get isBackOffice =>
+      this == UserRole.manager || this == UserRole.supervisor;
+
+  /// Browse the order history and void orders.
+  bool get canManageOrders => isBackOffice;
+
+  /// Generate the Excel sales export.
+  bool get canExport => isBackOffice;
+
+  /// Open the Sample screen — a read-only slice of a day's order history, so
+  /// anyone who may browse orders at all may sample them.
+  bool get canViewSample => canManageOrders;
+
+  /// Add, edit and deactivate products.
+  bool get canManageProducts => this == UserRole.manager;
+
+  /// Add, edit and deactivate payment methods.
+  bool get canManagePaymentMethods => this == UserRole.manager;
+
+  /// Set the PIN for any role.
+  bool get canChangePins => this == UserRole.manager;
 
   static UserRole? fromWire(String? value) => switch (value) {
         'staff' => UserRole.staff,
         'manager' => UserRole.manager,
+        'supervisor' => UserRole.supervisor,
         _ => null,
       };
 }
@@ -108,6 +142,7 @@ class AuthRepository {
     final defaultPin = switch (role) {
       UserRole.staff => AppDatabase.defaultStaffPin,
       UserRole.manager => AppDatabase.defaultManagerPin,
+      UserRole.supervisor => AppDatabase.defaultSupervisorPin,
     };
     return await authenticate(defaultPin) == role;
   }

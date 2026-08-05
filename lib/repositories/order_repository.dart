@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../core/app_date.dart';
@@ -34,6 +36,9 @@ class DraftLine {
 
   int get lineTotal => qty * unitPrice;
 }
+
+/// Shared by every sample draw, so two draws in a row differ.
+final Random _sampleRandom = Random();
 
 /// Order creation, history and voiding.
 class OrderRepository {
@@ -180,6 +185,40 @@ class OrderRepository {
   /// Orders for [date], newest first — the history screen's default view.
   Future<List<OrderWithLines>> ordersForDate(DateTime date) =>
       ordersInRange(from: date, to: date);
+
+  /// Share of a day's orders returned by [sampleOrdersForDate].
+  static const double sampleFraction = 0.45;
+
+  /// A random 45% of the orders on [date].
+  ///
+  /// Read-only, like every other history query: the draw happens in memory
+  /// over what [ordersForDate] returned, so opening the sample never touches a
+  /// row. Nothing about which orders were drawn is stored either — each call
+  /// is a fresh draw.
+  ///
+  /// The sample size is 45% of the day rounded to the nearest order, but never
+  /// zero while the day has any: a two-sale morning would otherwise sample to
+  /// nothing and read as a day with no business. The drawn orders keep their
+  /// chronological position, so the page reads like the history it samples.
+  ///
+  /// Pass [random] to make the draw reproducible in tests.
+  Future<List<OrderWithLines>> sampleOrdersForDate(
+    DateTime date, {
+    Random? random,
+  }) async {
+    final all = await ordersForDate(date);
+    if (all.isEmpty) return const [];
+
+    final size = max(1, (all.length * sampleFraction).round());
+
+    // Drawing indices rather than orders keeps the restore to chronological
+    // order a plain sort, with no comparator over orders.
+    final indices = List<int>.generate(all.length, (index) => index)
+      ..shuffle(random ?? _sampleRandom);
+    final drawn = indices.take(size).toList()..sort();
+
+    return drawn.map((index) => all[index]).toList(growable: false);
+  }
 
   /// Orders with `business_date` between [from] and [to] inclusive.
   ///

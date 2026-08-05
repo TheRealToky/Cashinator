@@ -74,7 +74,7 @@ class _PinScreenState extends State<PinScreen> {
 
       final destination = switch (role) {
         UserRole.staff => const PosScreen(),
-        UserRole.manager => const BackOfficeScreen(),
+        UserRole.manager || UserRole.supervisor => BackOfficeScreen(role: role),
       };
 
       await Navigator.of(context).push(

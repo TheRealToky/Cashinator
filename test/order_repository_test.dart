@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:cashinator/core/app_exception.dart';
 import 'package:cashinator/data/db/app_database.dart';
 import 'package:cashinator/data/models/order.dart';
@@ -274,6 +276,132 @@ void main() {
         to: DateTime(2020, 1, 31),
       );
       expect(result, isEmpty);
+    });
+  });
+
+  group('sampleOrdersForDate', () {
+    final day = DateTime(2026, 7, 20, 8);
+
+    Future<void> makeOrders(int count) async {
+      final catalogue = await products.activeProducts();
+      for (var i = 0; i < count; i++) {
+        await orders.createOrder(
+          lines: [
+            DraftLine(
+              productId: catalogue.first.id,
+              productName: catalogue.first.name,
+              unitPrice: catalogue.first.price,
+              qty: 1,
+            ),
+          ],
+          paymentMethod: cash,
+          now: day.add(Duration(minutes: i)),
+        );
+      }
+    }
+
+    test('returns 45% of the day, rounded to the nearest order', () async {
+      await makeOrders(20);
+      expect((await orders.sampleOrdersForDate(day)), hasLength(9));
+
+      // 10 orders round to 5 (4.5 rounds away from zero), 3 round to 1.
+      final other = DateTime(2026, 7, 21, 8);
+      final catalogue = await products.activeProducts();
+      for (var i = 0; i < 3; i++) {
+        await orders.createOrder(
+          lines: [
+            DraftLine(
+              productId: catalogue.first.id,
+              productName: catalogue.first.name,
+              unitPrice: catalogue.first.price,
+              qty: 1,
+            ),
+          ],
+          paymentMethod: cash,
+          now: other.add(Duration(minutes: i)),
+        );
+      }
+      expect(await orders.sampleOrdersForDate(other), hasLength(1));
+    });
+
+    test('never samples a day with orders down to nothing', () async {
+      await makeOrders(1);
+      expect(await orders.sampleOrdersForDate(day), hasLength(1));
+    });
+
+    test('returns nothing for a day with no orders', () async {
+      expect(await orders.sampleOrdersForDate(DateTime(2020, 1, 1)), isEmpty);
+    });
+
+    test('draws real orders of that day, without duplicates', () async {
+      await makeOrders(20);
+
+      final all = await orders.ordersForDate(day);
+      final sample = await orders.sampleOrdersForDate(day);
+      final ids = sample.map((entry) => entry.order.id).toList();
+
+      expect(ids.toSet(), hasLength(ids.length), reason: 'no order twice');
+      expect(all.map((entry) => entry.order.id), containsAll(ids));
+      for (final entry in sample) {
+        expect(entry.lines, isNotEmpty, reason: 'lines come along');
+      }
+    });
+
+    test('keeps the drawn orders in chronological order', () async {
+      await makeOrders(20);
+
+      final sample = await orders.sampleOrdersForDate(day);
+      final times = sample.map((e) => e.order.createdAt).toList();
+
+      expect(times, equals([...times]..sort((a, b) => a.compareTo(b))));
+    });
+
+    test('draws a different set on a later call', () async {
+      await makeOrders(40);
+
+      // With 18 of 40 drawn each time, two identical draws are about a
+      // 1-in-10^11 event; a fixed selection would fail this every run.
+      final firstIds = (await orders.sampleOrdersForDate(day))
+          .map((e) => e.order.id)
+          .toSet();
+      var differs = false;
+      for (var attempt = 0; attempt < 5 && !differs; attempt++) {
+        final nextIds = (await orders.sampleOrdersForDate(day))
+            .map((e) => e.order.id)
+            .toSet();
+        differs = !firstIds.containsAll(nextIds);
+      }
+      expect(differs, isTrue);
+    });
+
+    test('is reproducible when given a seeded Random', () async {
+      await makeOrders(20);
+
+      final first = await orders.sampleOrdersForDate(day, random: Random(7));
+      final second = await orders.sampleOrdersForDate(day, random: Random(7));
+
+      expect(
+        first.map((e) => e.order.id),
+        equals(second.map((e) => e.order.id)),
+      );
+    });
+
+    test('writes nothing: the day is untouched after sampling', () async {
+      await makeOrders(20);
+      final before = await orders.ordersForDate(day);
+      final totalsBefore = await orders.totalsForDate(day);
+
+      await orders.sampleOrdersForDate(day);
+      await orders.sampleOrdersForDate(day);
+
+      final after = await orders.ordersForDate(day);
+      final totalsAfter = await orders.totalsForDate(day);
+
+      expect(after.map((e) => e.order.id), equals(before.map((e) => e.order.id)));
+      expect(after.map((e) => e.order.total), equals(before.map((e) => e.order.total)));
+      expect(after.map((e) => e.order.status), equals(before.map((e) => e.order.status)));
+      expect(totalsAfter.orderCount, totalsBefore.orderCount);
+      expect(totalsAfter.revenue, totalsBefore.revenue);
     });
   });
 

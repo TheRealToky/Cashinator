@@ -14,10 +14,18 @@ import 'export_screen.dart';
 import 'order_history_screen.dart';
 import 'payment_methods_screen.dart';
 import 'products_screen.dart';
+import 'sample_screen.dart';
 
-/// Management landing screen: today at a glance, then the four tools.
+/// Management landing screen: today at a glance, then the tools this role is
+/// allowed to open.
+///
+/// The same screen serves the full [UserRole.manager] and the limited
+/// [UserRole.supervisor]; the [role] decides which tiles (and the default-PIN
+/// warning, which only the manager can act on) are shown.
 class BackOfficeScreen extends StatefulWidget {
-  const BackOfficeScreen({super.key});
+  const BackOfficeScreen({super.key, required this.role});
+
+  final UserRole role;
 
   @override
   State<BackOfficeScreen> createState() => _BackOfficeScreenState();
@@ -46,13 +54,23 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
       final auth = context.read<AuthRepository>();
 
       final totals = await orders.totalsForDate(DateTime.now());
-      final staffDefault = await auth.isUsingDefaultPin(UserRole.staff);
-      final managerDefault = await auth.isUsingDefaultPin(UserRole.manager);
+
+      // The banner offers a shortcut to the Change PIN screen, so it is only
+      // meaningful for a role that can actually change PINs.
+      var defaultPinsInUse = false;
+      if (widget.role.canChangePins) {
+        for (final role in UserRole.values) {
+          if (await auth.isUsingDefaultPin(role)) {
+            defaultPinsInUse = true;
+            break;
+          }
+        }
+      }
 
       if (!mounted) return;
       setState(() {
         _totals = totals;
-        _defaultPinsInUse = staffDefault || managerDefault;
+        _defaultPinsInUse = defaultPinsInUse;
         _loading = false;
       });
     } on AppException catch (error) {
@@ -77,7 +95,11 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: const Text('Back office'),
+        title: Text(
+          widget.role == UserRole.manager
+              ? 'Back office'
+              : 'Back office · ${widget.role.label}',
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -99,6 +121,7 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
 
   Widget _buildBody(BuildContext context) {
     final totals = _totals;
+    final role = widget.role;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -122,36 +145,48 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
             spacing: 16,
             runSpacing: 16,
             children: [
-              _ToolTile(
-                icon: Icons.bakery_dining_outlined,
-                label: 'Products',
-                description: 'Add, edit, deactivate',
-                onTap: () => _openTool(const ProductsScreen()),
-              ),
-              _ToolTile(
-                icon: Icons.payments_outlined,
-                label: 'Payment methods',
-                description: 'Cash, MoMo, Card and more',
-                onTap: () => _openTool(const PaymentMethodsScreen()),
-              ),
-              _ToolTile(
-                icon: Icons.receipt_long_outlined,
-                label: 'Order history',
-                description: 'Browse and void orders',
-                onTap: () => _openTool(const OrderHistoryScreen()),
-              ),
-              _ToolTile(
-                icon: Icons.table_view_outlined,
-                label: 'Excel export',
-                description: 'Sales for a date range',
-                onTap: () => _openTool(const ExportScreen()),
-              ),
-              _ToolTile(
-                icon: Icons.password_outlined,
-                label: 'Change PIN',
-                description: 'Front office or back office',
-                onTap: () => _openTool(const ChangePinScreen()),
-              ),
+              if (role.canManageProducts)
+                _ToolTile(
+                  icon: Icons.bakery_dining_outlined,
+                  label: 'Products',
+                  description: 'Add, edit, deactivate',
+                  onTap: () => _openTool(const ProductsScreen()),
+                ),
+              if (role.canManagePaymentMethods)
+                _ToolTile(
+                  icon: Icons.payments_outlined,
+                  label: 'Payment methods',
+                  description: 'Cash, MoMo, Card and more',
+                  onTap: () => _openTool(const PaymentMethodsScreen()),
+                ),
+              if (role.canManageOrders)
+                _ToolTile(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Order history',
+                  description: 'Browse and void orders',
+                  onTap: () => _openTool(const OrderHistoryScreen()),
+                ),
+              if (role.canViewSample)
+                _ToolTile(
+                  icon: Icons.shuffle,
+                  label: 'Sample',
+                  description: 'A random 45% of a day’s sales',
+                  onTap: () => _openTool(const SampleScreen()),
+                ),
+              if (role.canExport)
+                _ToolTile(
+                  icon: Icons.table_view_outlined,
+                  label: 'Excel export',
+                  description: 'Sales for a date range',
+                  onTap: () => _openTool(const ExportScreen()),
+                ),
+              if (role.canChangePins)
+                _ToolTile(
+                  icon: Icons.password_outlined,
+                  label: 'Change PIN',
+                  description: 'Front office, back office or supervisor',
+                  onTap: () => _openTool(const ChangePinScreen()),
+                ),
             ],
           ),
         ],

@@ -5,7 +5,9 @@
 library;
 
 /// Bump this and add a branch to `AppDatabase._migrate` for any schema change.
-const int kSchemaVersion = 1;
+///
+/// v2 added the limited back-office `supervisor` role to `app_users`.
+const int kSchemaVersion = 2;
 
 const List<String> kCreateStatements = [
   '''
@@ -81,11 +83,37 @@ const List<String> kCreateStatements = [
   '''
   CREATE TABLE app_users (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    role      TEXT    NOT NULL UNIQUE CHECK (role IN ('staff', 'manager')),
+    role      TEXT    NOT NULL UNIQUE
+              CHECK (role IN ('staff', 'manager', 'supervisor')),
     pin_hash  TEXT    NOT NULL,
     pin_salt  TEXT    NOT NULL
   )
   ''',
+];
+
+/// Migration to schema v2: admit the limited back-office `supervisor` role.
+///
+/// SQLite cannot ALTER a CHECK constraint in place, so `app_users` is rebuilt
+/// with the widened `role` check and its existing rows copied across. Nothing
+/// references `app_users` with a foreign key, so the drop-and-rename is safe.
+/// The new supervisor row itself is inserted from Dart (the PIN must be hashed
+/// first), not here.
+const List<String> kMigrateV2Statements = [
+  '''
+  CREATE TABLE app_users_new (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    role      TEXT    NOT NULL UNIQUE
+              CHECK (role IN ('staff', 'manager', 'supervisor')),
+    pin_hash  TEXT    NOT NULL,
+    pin_salt  TEXT    NOT NULL
+  )
+  ''',
+  '''
+  INSERT INTO app_users_new (id, role, pin_hash, pin_salt)
+  SELECT id, role, pin_hash, pin_salt FROM app_users
+  ''',
+  'DROP TABLE app_users',
+  'ALTER TABLE app_users_new RENAME TO app_users',
 ];
 
 /// Matches the shop's current ledger vocabulary.
