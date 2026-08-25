@@ -192,32 +192,41 @@ class OrderRepository {
   /// A random 45% of the orders on [date].
   ///
   /// Read-only, like every other history query: the draw happens in memory
-  /// over what [ordersForDate] returned, so opening the sample never touches a
-  /// row. Nothing about which orders were drawn is stored either — each call
-  /// is a fresh draw.
-  ///
-  /// The sample size is 45% of the day rounded to the nearest order, but never
-  /// zero while the day has any: a two-sale morning would otherwise sample to
-  /// nothing and read as a day with no business. The drawn orders keep their
-  /// chronological position, so the page reads like the history it samples.
+  /// over what [ordersForDate] returned, so sampling never touches a row and
+  /// nothing about the draw is written down. Holding a draw still on screen is
+  /// the caller's job — see `SampleController`.
   ///
   /// Pass [random] to make the draw reproducible in tests.
   Future<List<OrderWithLines>> sampleOrdersForDate(
     DateTime date, {
     Random? random,
-  }) async {
-    final all = await ordersForDate(date);
-    if (all.isEmpty) return const [];
+  }) async =>
+      drawSample(await ordersForDate(date), random: random);
 
-    final size = max(1, (all.length * sampleFraction).round());
+  /// Draws the 45% sample out of an already-loaded [orders] list.
+  ///
+  /// Separate from [sampleOrdersForDate] so a caller holding the day's orders
+  /// can redraw without a second query.
+  ///
+  /// The sample size is 45% of the day rounded to the nearest order, but never
+  /// zero while the day has any: a two-sale morning would otherwise sample to
+  /// nothing and read as a day with no business. The drawn orders keep their
+  /// chronological position, so the page reads like the history it samples.
+  List<OrderWithLines> drawSample(
+    List<OrderWithLines> orders, {
+    Random? random,
+  }) {
+    if (orders.isEmpty) return const [];
+
+    final size = max(1, (orders.length * sampleFraction).round());
 
     // Drawing indices rather than orders keeps the restore to chronological
     // order a plain sort, with no comparator over orders.
-    final indices = List<int>.generate(all.length, (index) => index)
+    final indices = List<int>.generate(orders.length, (index) => index)
       ..shuffle(random ?? _sampleRandom);
     final drawn = indices.take(size).toList()..sort();
 
-    return drawn.map((index) => all[index]).toList(growable: false);
+    return drawn.map((index) => orders[index]).toList(growable: false);
   }
 
   /// Orders with `business_date` between [from] and [to] inclusive.

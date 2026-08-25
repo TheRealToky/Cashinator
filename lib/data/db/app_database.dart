@@ -61,6 +61,11 @@ class AppDatabase {
           for (final statement in kCreateStatements) {
             batch.execute(statement);
           }
+          // Fresh tablets get every table at once; an existing one reaches the
+          // same shape through _migrate.
+          for (final statement in kCreateExpenseStatements) {
+            batch.execute(statement);
+          }
           await batch.commit(noResult: true);
           await _seed(db);
         },
@@ -100,6 +105,17 @@ class AppDatabase {
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
+    }
+
+    if (from < 3) {
+      // Purely additive: it creates the `expenses` table and its indexes and
+      // reads nothing. A tablet already holding months of sales keeps every
+      // row it had — there is no ALTER, no rebuild and no re-seed here.
+      final batch = db.batch();
+      for (final statement in kCreateExpenseStatements) {
+        batch.execute(statement);
+      }
+      await batch.commit(noResult: true);
     }
   }
 

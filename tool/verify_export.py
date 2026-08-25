@@ -23,8 +23,11 @@ except ImportError:  # pragma: no cover
 GENERATED = Path("build/test_exports/sample_export.xlsx")
 MANIFEST = Path("build/test_exports/sample_export.expected.txt")
 
+# The legacy exports were moved out of img_extraction/ (which now holds only
+# the ledger photographs) into sales_books/. Pass a path as argv[1] to check
+# against a different file.
 DEFAULT_REFERENCE = Path(
-    r"D:\PC DISAINE\toky\Perso-D\red\sales\img_extraction\2026-06"
+    r"D:\PC DISAINE\toky\Perso-D\red\sales\sales_books\2026-06"
     r"\pastry_sales_2026-06-19.xlsx"
 )
 

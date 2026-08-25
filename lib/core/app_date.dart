@@ -40,16 +40,82 @@ DateTime? parseIsoDate(String value) {
 
 /// [day]'s calendar date at [hour]:[minute], local time.
 ///
-/// Used when a cashier corrects the time on a sale: only the clock moves, never
-/// the date, so a corrected sale can never land on another day's order sequence
-/// or day total. Values outside 0–23 / 0–59 roll over the way [DateTime] does,
-/// so callers are expected to have validated them.
+/// The two halves of a sale's stamp are chosen separately — the date on the
+/// payment sheet, the clock on the time pad — and this is where they meet. The
+/// date always comes from [day], so editing the clock can never drag a sale
+/// onto a neighbouring day's order sequence or day total by itself. Values
+/// outside 0–23 / 0–59 roll over the way [DateTime] does, so callers are
+/// expected to have validated them.
 DateTime combineDateAndTime(DateTime day, int hour, int minute) =>
     DateTime(day.year, day.month, day.day, hour, minute);
 
 /// Strips the time component, giving the local-midnight instant for [moment].
 DateTime startOfDay(DateTime moment) =>
     DateTime(moment.year, moment.month, moment.day);
+
+/// Whole calendar days from [from] to [to]; negative when [to] is earlier.
+///
+/// Counted in hours and rounded rather than read off `Duration.inDays`, because
+/// a DST shift makes two local midnights 23 or 25 hours apart and would
+/// otherwise round "yesterday" down to zero days.
+int daysApart(DateTime from, DateTime to) =>
+    (startOfDay(to).difference(startOfDay(from)).inHours / 24).round();
+
+/// True when [a] and [b] fall on the same calendar day.
+bool isSameDate(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// Short weekday names, indexed by `DateTime.weekday - 1` (Monday is 1).
+///
+/// Hardcoded rather than taken from `intl`: the app ships no localisation and
+/// every other string in it is English, so a date-formatting package would add
+/// a dependency and a locale-init step to produce the same three letters.
+const List<String> _shortWeekdays = [
+  'Mon',
+  'Tue',
+  'Wed',
+  'Thu',
+  'Fri',
+  'Sat',
+  'Sun',
+];
+
+/// Short month names, indexed by `DateTime.month - 1`.
+const List<String> _shortMonths = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// `Sat 9 Aug` — a date a cashier can read without decoding it.
+///
+/// The weekday leads because that is how staff remember which day a missed
+/// sale happened on: "the Saturday we were closed", not "the ninth".
+String formatShortDate(DateTime date) =>
+    '${_shortWeekdays[date.weekday - 1]} ${date.day} '
+    '${_shortMonths[date.month - 1]}';
+
+/// [date] named relative to [today]: `Today`, `Yesterday`, else
+/// [formatShortDate].
+///
+/// [today] is passed in rather than read from the clock so the label a screen
+/// shows can be pinned for the life of that screen, and so tests do not have to
+/// run at a particular moment.
+String formatRelativeDate(DateTime date, {required DateTime today}) =>
+    switch (daysApart(today, date)) {
+      0 => 'Today',
+      -1 => 'Yesterday',
+      _ => formatShortDate(date),
+    };
 
 /// The first day of the month containing [moment].
 DateTime startOfMonth(DateTime moment) => DateTime(moment.year, moment.month);

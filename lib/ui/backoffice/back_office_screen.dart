@@ -10,6 +10,7 @@ import '../../repositories/auth_repository.dart';
 import '../../repositories/order_repository.dart';
 import '../widgets/async_value_view.dart';
 import 'change_pin_screen.dart';
+import 'expenses_screen.dart';
 import 'export_screen.dart';
 import 'order_history_screen.dart';
 import 'payment_methods_screen.dart';
@@ -165,6 +166,13 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
                   label: 'Order history',
                   description: 'Browse and void orders',
                   onTap: () => _openTool(const OrderHistoryScreen()),
+                ),
+              if (role.canManageExpenses)
+                _ToolTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: 'Expenses',
+                  description: 'Record what the shop spends',
+                  onTap: () => _openTool(const ExpensesScreen()),
                 ),
               if (role.canViewSample)
                 _ToolTile(

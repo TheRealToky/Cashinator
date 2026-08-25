@@ -159,6 +159,67 @@ void main() {
           reason: 'the label restarts each business day');
     });
 
+    test('a backdated sale joins the earlier day, leaving its rows alone',
+        () async {
+      final catalogue = await products.activeProducts();
+      DraftLine line() => DraftLine(
+            productId: catalogue.first.id,
+            productName: catalogue.first.name,
+            unitPrice: catalogue.first.price,
+            qty: 1,
+          );
+
+      final earlier = DateTime(2026, 7, 20, 9);
+      final today = DateTime(2026, 7, 23, 11);
+
+      final onTheDay = await orders.createOrder(
+        lines: [line()],
+        paymentMethod: cash,
+        now: earlier,
+      );
+      final current = await orders.createOrder(
+        lines: [line()],
+        paymentMethod: cash,
+        now: today,
+      );
+
+      // The sale nobody rang up on the 20th, entered on the 23rd.
+      final backdated = await orders.createOrder(
+        lines: [line()],
+        paymentMethod: cash,
+        now: earlier.add(const Duration(hours: 2)),
+      );
+
+      expect(backdated.businessDate, '2026-07-20');
+      expect(
+        backdated.orderLabel,
+        '2',
+        reason: 'it appends to that day rather than renumbering it',
+      );
+
+      // The row that was already on the 20th is untouched: a backdated sale
+      // must never rewrite history that has been exported or reconciled.
+      final earlierDay = await orders.ordersForDate(earlier);
+      expect(earlierDay, hasLength(2));
+      expect(earlierDay.first.order.id, onTheDay.id);
+      expect(earlierDay.first.order.orderLabel, '1');
+
+      // The current day keeps its own sequence and total.
+      final currentDay = await orders.ordersForDate(today);
+      expect(currentDay.single.order.id, current.id);
+      expect(currentDay.single.order.orderLabel, '1');
+
+      // The money lands on the day the sale happened, not the day it was typed.
+      expect(
+        (await orders.totalsForDate(earlier)).revenue,
+        catalogue.first.price * 2,
+      );
+      expect(
+        (await orders.totalsForDate(today)).revenue,
+        catalogue.first.price,
+      );
+    });
+
     test('rejects an empty cart', () async {
       expect(
         () => orders.createOrder(lines: const [], paymentMethod: cash),

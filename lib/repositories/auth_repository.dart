@@ -12,9 +12,9 @@ import '../data/db/app_database.dart';
 /// * [staff] runs the till (front office).
 /// * [manager] owns the back office and can do everything in it.
 /// * [supervisor] is a limited back-office login: it can browse order history,
-///   void orders and run the Excel export, but not touch the catalogue,
-///   payment methods or any PIN. It exists so a shift lead can correct sales
-///   without holding the keys to prices and access.
+///   void orders, record expenses and run the Excel exports, but not touch the
+///   catalogue, payment methods or any PIN. It exists so a shift lead can
+///   correct sales without holding the keys to prices and access.
 enum UserRole {
   staff('staff'),
   manager('manager'),
@@ -43,6 +43,15 @@ enum UserRole {
   /// Open the Sample screen — a read-only slice of a day's order history, so
   /// anyone who may browse orders at all may sample them.
   bool get canViewSample => canManageOrders;
+
+  /// Record and void expenses.
+  ///
+  /// Tied to [canManageOrders] rather than to the manager alone: an expense is
+  /// the same kind of record as a sale, and a shift lead who is trusted to
+  /// void a sale is trusted to write down the milk they bought. It stays out
+  /// of the front office — the till is for customers, and money going out is
+  /// the office's business.
+  bool get canManageExpenses => canManageOrders;
 
   /// Add, edit and deactivate products.
   bool get canManageProducts => this == UserRole.manager;

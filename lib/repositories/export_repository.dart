@@ -7,6 +7,8 @@ import '../core/app_date.dart';
 import '../core/app_exception.dart';
 import '../export/excel_exporter.dart';
 import '../export/export_data.dart';
+import '../export/expense_export_data.dart';
+import 'expense_repository.dart';
 import 'order_repository.dart';
 
 /// The result of a successful export.
@@ -26,17 +28,43 @@ class ExportResult {
   String get fileName => p.basename(file.path);
 }
 
-/// Pulls orders for a date range, renders the workbook and writes it to disk.
+/// The result of a successful expenses export.
+class ExpenseExportResult {
+  const ExpenseExportResult({
+    required this.file,
+    required this.expenseCount,
+    required this.dayCount,
+    required this.totalSpend,
+  });
+
+  final File file;
+  final int expenseCount;
+  final int dayCount;
+
+  /// Whole RWF across the range, voided expenses excluded — the same figure
+  /// the workbook's `TOTAL` row adds up to.
+  final int totalSpend;
+
+  String get fileName => p.basename(file.path);
+}
+
+/// Pulls orders or expenses for a date range, renders the workbook and writes
+/// it to disk.
 class ExportRepository {
   ExportRepository(
-    this._orders, {
+    this._orders,
+    this._expenses, {
     ExportDataBuilder builder = const ExportDataBuilder(),
+    ExpenseExportBuilder expenseBuilder = const ExpenseExportBuilder(),
     ExcelExporter exporter = const ExcelExporter(),
   })  : _builder = builder,
+        _expenseBuilder = expenseBuilder,
         _exporter = exporter;
 
   final OrderRepository _orders;
+  final ExpenseRepository _expenses;
   final ExportDataBuilder _builder;
+  final ExpenseExportBuilder _expenseBuilder;
   final ExcelExporter _exporter;
 
   /// Exports [from]..[to] inclusive.
@@ -80,6 +108,54 @@ class ExportRepository {
     );
   }
 
+  /// Exports the expenses recorded in [from]..[to] inclusive.
+  ///
+  /// A separate workbook from the sales one, and deliberately so: the sales
+  /// file's layout is fixed by the shop's downstream script, and adding sheets
+  /// to it would put that script's input at risk for no gain.
+  ///
+  /// Throws [NotFoundException] when the range holds no expenses, so the UI
+  /// can say "nothing to export" instead of handing over an empty file.
+  Future<ExpenseExportResult> exportExpenseRange({
+    required DateTime from,
+    required DateTime to,
+    Directory? directoryOverride,
+  }) async {
+    final expenses = await _expenses.expensesInRange(from: from, to: to);
+    if (expenses.isEmpty) {
+      throw const NotFoundException(
+        'There are no expenses in that date range yet.',
+      );
+    }
+
+    final data = _expenseBuilder.build(expenses: expenses, from: from, to: to);
+    final bytes = _exporter.buildExpenseWorkbookBytes(data);
+
+    final directory = directoryOverride ?? await _exportDirectory();
+    final file = File(
+      p.join(directory.path, _expenseFileNameFor(from, to)),
+    );
+
+    try {
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+    } on FileSystemException catch (error) {
+      throw StorageException(
+        'Could not write the export file. Check that the tablet has free '
+        'storage space.',
+        cause: error,
+      );
+    }
+
+    return ExpenseExportResult(
+      file: file,
+      expenseCount: expenses.length,
+      dayCount: data.daySummaries.length,
+      totalSpend: data.daySummaries
+          .fold(0, (sum, summary) => sum + summary.totalSpend),
+    );
+  }
+
   /// Where exports land on the tablet.
   ///
   /// Uses the app's external files directory on Android, which is reachable
@@ -106,11 +182,19 @@ class ExportRepository {
 
   /// Mirrors the legacy naming: `pastry_sales_YYYY-MM-DD.xlsx` for one day,
   /// `pastry_sales_YYYY-MM-DD_to_YYYY-MM-DD.xlsx` for a range.
-  String _fileNameFor(DateTime from, DateTime to) {
+  String _fileNameFor(DateTime from, DateTime to) =>
+      _rangeFileName('pastry_sales', from, to);
+
+  /// The same naming, one word along: `pastry_expenses_YYYY-MM-DD.xlsx`. The
+  /// two files sort next to each other in the tablet's export folder.
+  String _expenseFileNameFor(DateTime from, DateTime to) =>
+      _rangeFileName('pastry_expenses', from, to);
+
+  String _rangeFileName(String prefix, DateTime from, DateTime to) {
     final fromIso = formatIsoDate(from);
     final toIso = formatIsoDate(to);
     return fromIso == toIso
-        ? 'pastry_sales_$fromIso.xlsx'
-        : 'pastry_sales_${fromIso}_to_$toIso.xlsx';
+        ? '${prefix}_$fromIso.xlsx'
+        : '${prefix}_${fromIso}_to_$toIso.xlsx';
   }
 }

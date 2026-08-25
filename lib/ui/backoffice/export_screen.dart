@@ -3,10 +3,19 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_date.dart';
 import '../../core/app_exception.dart';
+import '../../core/money.dart';
 import '../../repositories/export_repository.dart';
 import '../widgets/async_value_view.dart';
 
-/// Date-range picker plus the export trigger.
+/// Which of the two workbooks a run is producing.
+enum _ExportKind { sales, expenses }
+
+/// Date-range picker plus the export triggers.
+///
+/// One range, two files. Sales and expenses are exported separately because
+/// the sales workbook's layout is fixed by the shop's downstream script —
+/// putting expenses inside it would risk that script for no gain — and because
+/// the two are read by different people at different times of the month.
 class ExportScreen extends StatefulWidget {
   const ExportScreen({super.key});
 
@@ -17,8 +26,13 @@ class ExportScreen extends StatefulWidget {
 class _ExportScreenState extends State<ExportScreen> {
   late DateTime _from;
   late DateTime _to;
-  bool _busy = false;
-  ExportResult? _result;
+
+  /// The export currently running, or null while idle. Only one runs at a
+  /// time, so the other button greys out rather than queueing a second write.
+  _ExportKind? _running;
+
+  ExportResult? _salesResult;
+  ExpenseExportResult? _expenseResult;
 
   @override
   void initState() {
@@ -33,8 +47,14 @@ class _ExportScreenState extends State<ExportScreen> {
     setState(() {
       _from = from;
       _to = to;
-      _result = null;
+      _clearResults();
     });
+  }
+
+  /// Results name a range, so they stop being true the moment it changes.
+  void _clearResults() {
+    _salesResult = null;
+    _expenseResult = null;
   }
 
   Future<void> _pick({required bool isStart}) async {
@@ -56,14 +76,14 @@ class _ExportScreenState extends State<ExportScreen> {
         _to = day;
         if (_to.isBefore(_from)) _from = _to;
       }
-      _result = null;
+      _clearResults();
     });
   }
 
   Future<void> _export() async {
     setState(() {
-      _busy = true;
-      _result = null;
+      _running = _ExportKind.sales;
+      _salesResult = null;
     });
 
     try {
@@ -71,13 +91,34 @@ class _ExportScreenState extends State<ExportScreen> {
           .read<ExportRepository>()
           .exportRange(from: _from, to: _to);
       if (!mounted) return;
-      setState(() => _result = result);
+      setState(() => _salesResult = result);
       showAppSnackBar(context, 'Exported ${result.fileName}.');
     } on AppException catch (error) {
       if (!mounted) return;
       showAppSnackBar(context, error.message, isError: true);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _running = null);
+    }
+  }
+
+  Future<void> _exportExpenses() async {
+    setState(() {
+      _running = _ExportKind.expenses;
+      _expenseResult = null;
+    });
+
+    try {
+      final result = await context
+          .read<ExportRepository>()
+          .exportExpenseRange(from: _from, to: _to);
+      if (!mounted) return;
+      setState(() => _expenseResult = result);
+      showAppSnackBar(context, 'Exported ${result.fileName}.');
+    } on AppException catch (error) {
+      if (!mounted) return;
+      showAppSnackBar(context, error.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _running = null);
     }
   }
 
@@ -141,26 +182,51 @@ class _ExportScreenState extends State<ExportScreen> {
               ],
             ),
             const SizedBox(height: 28),
-            SizedBox(
-              height: 64,
-              child: FilledButton.icon(
-                onPressed: _busy ? null : _export,
-                icon: _busy
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.download, size: 26),
-                label: Text(_busy ? 'Generating…' : 'Generate Excel file'),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _ExportButton(
+                    label: 'Sales Excel file',
+                    icon: Icons.table_view_outlined,
+                    running: _running == _ExportKind.sales,
+                    onPressed: _running != null ? null : _export,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _ExportButton(
+                    label: 'Expenses Excel file',
+                    icon: Icons.account_balance_wallet_outlined,
+                    running: _running == _ExportKind.expenses,
+                    onPressed: _running != null ? null : _exportExpenses,
+                  ),
+                ),
+              ],
             ),
-            if (_result != null) ...[
+            if (_salesResult != null) ...[
               const SizedBox(height: 28),
-              _ResultCard(result: _result!),
+              _ResultCard(
+                title: 'Sales export ready',
+                summary: '${_salesResult!.orderCount} '
+                    'order${_salesResult!.orderCount == 1 ? '' : 's'} · '
+                    '${_salesResult!.lineCount} '
+                    'line${_salesResult!.lineCount == 1 ? '' : 's'} · '
+                    '${_salesResult!.dayCount} '
+                    'day${_salesResult!.dayCount == 1 ? '' : 's'}',
+                path: _salesResult!.file.path,
+              ),
+            ],
+            if (_expenseResult != null) ...[
+              const SizedBox(height: 28),
+              _ResultCard(
+                title: 'Expenses export ready',
+                summary: '${_expenseResult!.expenseCount} '
+                    'expense${_expenseResult!.expenseCount == 1 ? '' : 's'} · '
+                    '${_expenseResult!.dayCount} '
+                    'day${_expenseResult!.dayCount == 1 ? '' : 's'} · '
+                    '${formatRwfWithUnit(_expenseResult!.totalSpend)}',
+                path: _expenseResult!.file.path,
+              ),
             ],
             const SizedBox(height: 28),
             const _FormatNote(),
@@ -242,10 +308,53 @@ class _DateField extends StatelessWidget {
   }
 }
 
-class _ResultCard extends StatelessWidget {
-  const _ResultCard({required this.result});
+/// One of the two export triggers. They share a shape so neither reads as the
+/// main one.
+class _ExportButton extends StatelessWidget {
+  const _ExportButton({
+    required this.label,
+    required this.icon,
+    required this.running,
+    required this.onPressed,
+  });
 
-  final ExportResult result;
+  final String label;
+  final IconData icon;
+  final bool running;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: running
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Colors.white,
+                ),
+              )
+            : Icon(icon, size: 26),
+        label: Text(running ? 'Generating…' : label),
+      ),
+    );
+  }
+}
+
+class _ResultCard extends StatelessWidget {
+  const _ResultCard({
+    required this.title,
+    required this.summary,
+    required this.path,
+  });
+
+  final String title;
+  final String summary;
+  final String path;
 
   @override
   Widget build(BuildContext context) {
@@ -267,7 +376,7 @@ class _ResultCard extends StatelessWidget {
                   color: scheme.onPrimaryContainer, size: 28),
               const SizedBox(width: 12),
               Text(
-                'Export ready',
+                title,
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w700,
@@ -278,14 +387,12 @@ class _ResultCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            '${result.orderCount} order${result.orderCount == 1 ? '' : 's'} · '
-            '${result.lineCount} line${result.lineCount == 1 ? '' : 's'} · '
-            '${result.dayCount} day${result.dayCount == 1 ? '' : 's'}',
+            summary,
             style: TextStyle(fontSize: 17, color: scheme.onPrimaryContainer),
           ),
           const SizedBox(height: 10),
           SelectableText(
-            result.file.path,
+            path,
             style: TextStyle(fontSize: 14, color: scheme.onPrimaryContainer),
           ),
         ],
@@ -314,10 +421,12 @@ class _FormatNote extends StatelessWidget {
           const SizedBox(width: 14),
           Expanded(
             child: Text(
-              'The file keeps the layout the existing ledger exports use: a '
-              '"Sales Lines" sheet with one row per item, and a "Day Summary" '
-              'sheet with one row per day. Voided orders stay visible in Sales '
-              'Lines but are left out of the summary totals.',
+              'The sales file keeps the layout the existing ledger exports '
+              'use: a "Sales Lines" sheet with one row per item, and a '
+              '"Day Summary" sheet with one row per day. Expenses go to a '
+              'separate file of the same shape, so the sales one stays exactly '
+              'as the downstream script expects it. In both, voided rows stay '
+              'visible but are left out of the summary totals.',
               style: TextStyle(fontSize: 15, color: scheme.onSurfaceVariant),
             ),
           ),

@@ -34,7 +34,11 @@ class TimePadDialog extends StatefulWidget {
     super.key,
     required this.day,
     required this.initial,
+    this.title = defaultTitle,
   });
+
+  /// Heading. The back office's expense form reuses this pad and renames it.
+  static const String defaultTitle = 'Sale time';
 
   /// The business day the sale belongs to. Only the clock is editable; see
   /// [combineDateAndTime].
@@ -43,15 +47,18 @@ class TimePadDialog extends StatefulWidget {
   /// The time the pad opens on — the sale's current time.
   final TimeOfDay initial;
 
+  final String title;
+
   /// Shows the pad and resolves to the chosen instant, or `null` if cancelled.
   static Future<DateTime?> show(
     BuildContext context, {
     required DateTime day,
     required TimeOfDay initial,
+    String title = defaultTitle,
   }) {
     return showDialog<DateTime>(
       context: context,
-      builder: (_) => TimePadDialog(day: day, initial: initial),
+      builder: (_) => TimePadDialog(day: day, initial: initial, title: title),
     );
   }
 
@@ -168,7 +175,7 @@ class _TimePadDialogState extends State<TimePadDialog> {
     final chosen = combineDateAndTime(widget.day, entry.hour, entry.minute);
 
     return AlertDialog(
-      title: const Text('Sale time'),
+      title: Text(widget.title),
       contentPadding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
       content: SizedBox(
         width: 340,

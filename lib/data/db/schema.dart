@@ -7,7 +7,9 @@ library;
 /// Bump this and add a branch to `AppDatabase._migrate` for any schema change.
 ///
 /// v2 added the limited back-office `supervisor` role to `app_users`.
-const int kSchemaVersion = 2;
+/// v3 added the `expenses` table. Nothing else changed with it — see
+/// [kCreateExpenseStatements].
+const int kSchemaVersion = 3;
 
 const List<String> kCreateStatements = [
   '''
@@ -88,6 +90,50 @@ const List<String> kCreateStatements = [
     pin_hash  TEXT    NOT NULL,
     pin_salt  TEXT    NOT NULL
   )
+  ''',
+];
+
+/// The `expenses` table, added in v3.
+///
+/// Kept in its own list because it is both half of `onCreate` on a fresh
+/// tablet and the whole of the v3 migration on a tablet already holding
+/// sales — the two must not drift apart. Every statement is `IF NOT EXISTS`
+/// so a migration interrupted part way can be re-run on the next launch
+/// instead of leaving the app unable to open its own database.
+///
+/// The shape mirrors `orders` deliberately: same stamp columns, same payment
+/// method snapshot, same voided-rows-keep-their-audit-trail CHECK. Nothing in
+/// here touches an existing table, so upgrading cannot alter a single row that
+/// is already on the tablet.
+const List<String> kCreateExpenseStatements = [
+  '''
+  CREATE TABLE IF NOT EXISTS expenses (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                TEXT    NOT NULL,
+    amount              INTEGER NOT NULL CHECK (amount > 0),
+    business_date       TEXT    NOT NULL,
+    created_at          TEXT    NOT NULL,
+    payment_method_id   INTEGER REFERENCES payment_methods (id),
+    payment_method_name TEXT    NOT NULL,
+    status              TEXT    NOT NULL DEFAULT 'normal'
+                        CHECK (status IN ('normal', 'voided')),
+    void_reason         TEXT,
+    voided_at           TEXT,
+    -- A voided expense must carry its audit trail; a normal one must not.
+    CHECK (
+      (status = 'voided' AND void_reason IS NOT NULL AND voided_at IS NOT NULL)
+      OR
+      (status = 'normal' AND void_reason IS NULL AND voided_at IS NULL)
+    )
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_expenses_business_date
+    ON expenses (business_date)
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_expenses_created_at
+    ON expenses (created_at)
   ''',
 ];
 

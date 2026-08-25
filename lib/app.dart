@@ -3,12 +3,14 @@ import 'package:provider/provider.dart';
 
 import 'data/db/app_database.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/expense_repository.dart';
 import 'repositories/export_repository.dart';
 import 'repositories/order_repository.dart';
 import 'repositories/payment_method_repository.dart';
 import 'repositories/product_repository.dart';
 import 'state/cart_controller.dart';
 import 'state/catalog_controller.dart';
+import 'state/sample_controller.dart';
 import 'ui/auth/pin_screen.dart';
 import 'ui/theme.dart';
 
@@ -35,11 +37,21 @@ class CashinatorApp extends StatelessWidget {
         Provider<OrderRepository>(
           create: (_) => OrderRepository(database),
         ),
+        Provider<ExpenseRepository>(
+          create: (_) => ExpenseRepository(database),
+        ),
         Provider<AuthRepository>(
           create: (_) => AuthRepository(database),
         ),
-        ProxyProvider<OrderRepository, ExportRepository>(
-          update: (_, orders, __) => ExportRepository(orders),
+        ProxyProvider2<OrderRepository, ExpenseRepository, ExportRepository>(
+          update: (_, orders, expenses, __) =>
+              ExportRepository(orders, expenses),
+        ),
+        // Keeps `previous`, so the held sample draws survive a rebuild — a new
+        // controller here would silently redraw behind the manager's back.
+        ProxyProvider<OrderRepository, SampleController>(
+          update: (_, orders, previous) =>
+              previous ?? SampleController(orders),
         ),
         ChangeNotifierProvider<CartController>(
           create: (_) => CartController(),

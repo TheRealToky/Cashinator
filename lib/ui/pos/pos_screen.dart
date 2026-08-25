@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/app_date.dart';
 import '../../core/app_exception.dart';
 import '../../core/money.dart';
 import '../../repositories/order_repository.dart';
@@ -66,8 +67,8 @@ class _PosScreenState extends State<PosScreen> {
       final order = await context.read<OrderRepository>().createOrder(
             lines: cart.toDraftLines(),
             paymentMethod: choice.method,
-            // Null unless the cashier set a time by hand, which leaves the
-            // repository to stamp the sale as it writes it.
+            // Null unless the cashier set the date or the time by hand, which
+            // leaves the repository to stamp the sale as it writes it.
             now: choice.at,
           );
 
@@ -79,13 +80,20 @@ class _PosScreenState extends State<PosScreen> {
       cart.clear();
       unawaited(HapticFeedback.mediumImpact());
 
+      // Read any hand-set stamp back, so a mistyped one is caught now rather
+      // than at the end of the day. A backdated sale names its day, since that
+      // is the part that moves the sale out of the totals on screen.
+      final stamp = [
+        if (choice.isDateCustom)
+          'on ${formatRelativeDate(order.createdAt, today: DateTime.now())}',
+        if (choice.isTimeCustom) 'at ${order.timeLabel}',
+      ].join(' ');
+
       showAppSnackBar(
         context,
         'Order ${order.orderLabel} recorded · '
         '${formatRwfWithUnit(total)} · ${choice.method.name}'
-        // Read the edited time back, so a mistyped one is caught now rather
-        // than at the end of the day.
-        '${choice.isTimeCustom ? ' · at ${order.timeLabel}' : ''}',
+        '${stamp.isEmpty ? '' : ' · $stamp'}',
       );
     } on AppException catch (error) {
       if (!mounted) return;

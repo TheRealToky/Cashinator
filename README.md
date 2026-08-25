@@ -21,10 +21,11 @@ lib/
   core/           formatting, date shapes, error types — no Flutter imports
   data/
     db/           schema.dart (SQL + seeds), app_database.dart (connection)
-    models/       Product, PaymentMethod, Order, OrderLine
+    models/       Product, PaymentMethod, Order, OrderLine, Expense
   repositories/   the only code that touches sqflite
   export/         export_format.dart (constants), export_data.dart (pure
-                  layout logic), excel_exporter.dart (xlsio writer)
+                  layout logic), excel_exporter.dart (xlsio writer), and the
+                  expense_export_* pair for the expenses workbook
   state/          CartController, CatalogController (ChangeNotifier)
   ui/             auth/, pos/, backoffice/, widgets/
 ```
@@ -43,7 +44,7 @@ way. A price rise or a rename next month cannot rewrite last month's export.
 
 **Voiding is a status, never a delete.** A voided order keeps its row, its
 lines, a reason and a timestamp. It stays visible in the `Sales Lines` sheet and
-drops out of the `Day Summary` totals.
+drops out of the `Day Summary` totals. Expenses follow the same rule.
 
 ## Excel export
 
@@ -78,6 +79,35 @@ Case variants fold onto the baseline spelling — a `Momo` order lands in the
 `MoMo` column rather than creating a fourth. The database also has a
 case-insensitive unique index on payment method names, so the `MoMo`/`Momo`
 split visible in the legacy data (1543 vs 73 rows) cannot recur.
+
+## Expenses
+
+The back office records what the shop spends: a name, an amount, a date, a time
+and a payment method. The form is the till's payment sheet with the money
+running the other way — the same optional date and time rows defaulting to now,
+the same one-button-per-method confirmation — because the same people use both.
+
+Expenses live in their own `expenses` table (schema v3) and are voided, never
+deleted, exactly like orders.
+
+They export to a **separate workbook**, `pastry_expenses_YYYY-MM-DD.xlsx`,
+triggered from the same date range on the Excel export screen:
+
+```
+Expenses    — Expense Id, Name, Amount (RWF), Payment Method, Time, Date, Status, Notes
+Day Summary — Date, Expenses, Total Spend (RWF), MoMo, Card, Cash, [extras…] + TOTAL row
+```
+
+The separation is deliberate. The sales workbook's layout is fixed by the
+downstream automation script that parses it by column position; adding sheets
+to that file would put the script at risk for no gain. The expenses sheets keep
+the sales workbook's styling, payment-column rules and `SUM()` TOTAL row, but
+drop the OCR-era columns (`Source Image`, `Confidence`, `Low Confidence
+Lines`), which never meant anything for an expense.
+
+Both back-office roles may record and void expenses — an expense is the same
+kind of record as a sale, and a supervisor who may void a sale may write down
+the milk they bought.
 
 ## Deviations from the original spec
 

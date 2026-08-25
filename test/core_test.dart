@@ -89,4 +89,67 @@ void main() {
   test('startOfMonth drops the day and time', () {
     expect(startOfMonth(DateTime(2026, 7, 20, 14, 5)), DateTime(2026, 7, 1));
   });
+
+  group('daysApart', () {
+    test('counts calendar days, not elapsed hours', () {
+      // Late on one evening to early the next morning is nine hours, but it is
+      // still one day apart — which is what "Yesterday" has to key off.
+      expect(
+        daysApart(DateTime(2026, 8, 12, 23, 30), DateTime(2026, 8, 13, 8, 15)),
+        1,
+      );
+    });
+
+    test('is signed and zero within a day', () {
+      expect(daysApart(DateTime(2026, 8, 13), DateTime(2026, 8, 12)), -1);
+      expect(daysApart(DateTime(2026, 8, 13, 6), DateTime(2026, 8, 13, 22)), 0);
+      expect(daysApart(DateTime(2026, 7, 30), DateTime(2026, 8, 13)), 14);
+    });
+  });
+
+  group('isSameDate', () {
+    test('ignores the clock', () {
+      expect(
+        isSameDate(DateTime(2026, 8, 13, 0, 1), DateTime(2026, 8, 13, 23, 59)),
+        isTrue,
+      );
+      expect(isSameDate(DateTime(2026, 8, 13), DateTime(2026, 8, 12)), isFalse);
+      // Same day number, different month — the cheap comparison must not pass.
+      expect(isSameDate(DateTime(2026, 8, 13), DateTime(2026, 7, 13)), isFalse);
+    });
+  });
+
+  group('sale date labels', () {
+    // A Thursday.
+    final today = DateTime(2026, 8, 13);
+
+    test('names the two days staff actually backdate to', () {
+      expect(formatRelativeDate(today, today: today), 'Today');
+      expect(
+        formatRelativeDate(DateTime(2026, 8, 12), today: today),
+        'Yesterday',
+      );
+    });
+
+    test('falls back to a weekday and date further out', () {
+      expect(formatRelativeDate(DateTime(2026, 8, 9), today: today), 'Sun 9 Aug');
+      expect(
+        formatRelativeDate(DateTime(2026, 7, 30), today: today),
+        'Thu 30 Jul',
+      );
+    });
+
+    test('is unaffected by the time of day on either side', () {
+      expect(
+        formatRelativeDate(DateTime(2026, 8, 12, 19, 40),
+            today: DateTime(2026, 8, 13, 6, 5)),
+        'Yesterday',
+      );
+    });
+
+    test('formatShortDate leads with the weekday', () {
+      expect(formatShortDate(DateTime(2026, 1, 2)), 'Fri 2 Jan');
+      expect(formatShortDate(DateTime(2026, 12, 31)), 'Thu 31 Dec');
+    });
+  });
 }

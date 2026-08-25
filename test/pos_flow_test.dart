@@ -230,6 +230,150 @@ void main() {
     );
   });
 
+  testWidgets('a sale can be recorded against an earlier day', (tester) async {
+    tester.view.physicalSize = const Size(2560, 1600);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(firstProduct).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Charge'));
+    await tester.pumpAndSettle();
+
+    // The sale defaults to today and says so.
+    expect(find.text('Sale date'), findsOneWidget);
+    expect(find.byIcon(Icons.restore), findsNothing);
+
+    await tester.tap(find.text('Sale date'));
+    await tester.pumpAndSettle();
+
+    // The quick day staff reach for: the sale missed yesterday.
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Yesterday'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Set Yesterday'));
+    await tester.pumpAndSettle();
+
+    // The backdating stays on screen through the payment step.
+    expect(find.text('Sale date (backdated)'), findsOneWidget);
+    expect(find.text('Yesterday'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Cash'));
+    await tester.pumpAndSettle();
+
+    final repository = OrderRepository(database);
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+    expect(
+      await repository.ordersForDate(DateTime.now()),
+      isEmpty,
+      reason: 'a backdated sale leaves today untouched',
+    );
+
+    final stored = await repository.ordersForDate(yesterday);
+    expect(stored, hasLength(1));
+    expect(stored.single.order.businessDate, formatIsoDate(yesterday));
+  });
+
+  testWidgets('a backdated sale keeps its day when the time is edited', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(2560, 1600);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+
+    final target = DateTime.now().hour == 9
+        ? const TimeOfDay(hour: 14, minute: 5)
+        : const TimeOfDay(hour: 9, minute: 30);
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(firstProduct).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Charge'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sale date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Yesterday'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Set Yesterday'));
+    await tester.pumpAndSettle();
+
+    // Now correct the clock as well — the two halves are set separately.
+    expect(find.text('Sale time'), findsOneWidget);
+    await tester.tap(find.text('Sale time'));
+    await tester.pumpAndSettle();
+
+    for (final key in _keystrokesFor(target)) {
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(OutlinedButton, key),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final label = '${_two(target.hour)}:${_two(target.minute)}';
+    await tester.tap(find.widgetWithText(FilledButton, 'Set $label'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sale date (backdated)'), findsOneWidget);
+    expect(find.text('Sale time (edited)'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Cash'));
+    await tester.pumpAndSettle();
+
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    final stored = await OrderRepository(database).ordersForDate(yesterday);
+    final order = stored.single.order;
+
+    // Editing the clock must not drag the sale back onto today.
+    expect(order.businessDate, formatIsoDate(yesterday));
+    expect(order.timeLabel, label);
+  });
+
+  testWidgets('a backdated sale can be handed back to today', (tester) async {
+    tester.view.physicalSize = const Size(2560, 1600);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text(firstProduct).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Charge'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sale date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Yesterday'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Set Yesterday'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sale date (backdated)'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.restore));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sale date'), findsOneWidget);
+    expect(find.byIcon(Icons.restore), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Cash'));
+    await tester.pumpAndSettle();
+
+    final stored =
+        await OrderRepository(database).ordersForDate(DateTime.now());
+    expect(stored, hasLength(1));
+    expect(stored.single.order.businessDate, formatIsoDate(DateTime.now()));
+  });
+
   testWidgets('the cart is not cleared when a sale is not confirmed', (
     tester,
   ) async {

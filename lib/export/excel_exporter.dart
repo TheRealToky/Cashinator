@@ -6,11 +6,15 @@ import 'package:syncfusion_flutter_xlsio/xlsio.dart';
 import '../core/app_exception.dart';
 import 'export_data.dart';
 import 'export_format.dart';
+import 'expense_export_data.dart';
+import 'expense_export_format.dart';
 
-/// Writes [ExportWorkbookData] out as `.xlsx` in the legacy layout.
+/// Writes an export out as `.xlsx`: [ExportWorkbookData] in the legacy sales
+/// layout, or [ExpenseWorkbookData] in the expenses layout.
 ///
-/// This class does no aggregation — [ExportDataBuilder] decided every value.
-/// All that happens here is placement and formatting.
+/// This class does no aggregation — [ExportDataBuilder] and
+/// [ExpenseExportBuilder] decided every value. All that happens here is
+/// placement and formatting, which is why both workbooks share one writer.
 class ExcelExporter {
   const ExcelExporter();
 
@@ -34,6 +38,34 @@ class ExcelExporter {
     } finally {
       // xlsio holds native-ish buffers; not disposing leaks them for the life
       // of the process, and this runs on a tablet that stays open all day.
+      workbook.dispose();
+    }
+  }
+
+  /// Renders the expenses workbook and returns its bytes.
+  ///
+  /// A file of its own rather than a third sheet in the sales workbook: the
+  /// shop's downstream script parses that file, and a sale and an expense are
+  /// two different kinds of money that should not have to be told apart by a
+  /// reader who opened the wrong tab.
+  List<int> buildExpenseWorkbookBytes(ExpenseWorkbookData data) {
+    final workbook = Workbook();
+    try {
+      final expensesSheet = workbook.worksheets[0];
+      expensesSheet.name = kExpensesSheetName;
+      _writeExpenses(expensesSheet, data);
+
+      final summarySheet =
+          workbook.worksheets.addWithName(kExpenseDaySummarySheetName);
+      _writeExpenseDaySummary(summarySheet, data);
+
+      return _normaliseFormulaBytes(workbook.saveAsStream());
+    } on Object catch (error) {
+      throw StorageException(
+        'Could not generate the Excel file.',
+        cause: error,
+      );
+    } finally {
       workbook.dispose();
     }
   }
@@ -177,6 +209,69 @@ class ExcelExporter {
       cell.cellStyle.bold = true;
       cell.cellStyle.fontSize = kBodyFontSize;
     }
+  }
+
+  void _writeExpenses(Worksheet sheet, ExpenseWorkbookData data) {
+    for (var column = 0; column < kExpensesHeader.length; column++) {
+      final cell = sheet.getRangeByIndex(1, column + 1);
+      cell.setText(kExpensesHeader[column]);
+      _styleHeaderCell(cell);
+      sheet.getRangeByIndex(1, column + 1).columnWidth =
+          kExpensesColumnWidths[column];
+    }
+
+    var row = 2;
+    for (final expense in data.expenses) {
+      final cells = expense.toCells();
+      for (var column = 0; column < cells.length; column++) {
+        _writeCell(sheet.getRangeByIndex(row, column + 1), cells[column]);
+      }
+      row++;
+    }
+
+    sheet.getRangeByName('A2').freezePanes();
+    sheet.autoFilters.filterRange = sheet.getRangeByName(
+      'A1:${_columnLetter(kExpensesHeader.length)}1',
+    );
+  }
+
+  void _writeExpenseDaySummary(Worksheet sheet, ExpenseWorkbookData data) {
+    final header = data.daySummaryHeader;
+
+    for (var column = 0; column < header.length; column++) {
+      final cell = sheet.getRangeByIndex(1, column + 1);
+      cell.setText(header[column]);
+      _styleHeaderCell(cell);
+    }
+
+    sheet.getRangeByIndex(1, 1).columnWidth = 13;
+    sheet.getRangeByIndex(1, 2).columnWidth = 11;
+    sheet.getRangeByIndex(1, 3).columnWidth = 19;
+    for (var i = 0; i < data.paymentColumns.length; i++) {
+      sheet
+          .getRangeByIndex(
+            1,
+            kExpenseDaySummaryLeadingHeader.length + 1 + i,
+          )
+          .columnWidth = 12;
+    }
+
+    var row = 2;
+    for (final summary in data.daySummaries) {
+      final cells = summary.toCells(data.paymentColumns);
+      for (var column = 0; column < cells.length; column++) {
+        final cell = sheet.getRangeByIndex(row, column + 1);
+        _writeCell(cell, cells[column]);
+        cell.cellStyle.backColor = kSummaryRowBackColor;
+        cell.cellStyle.hAlign = HAlignType.center;
+        cell.cellStyle.fontSize = kBodyFontSize;
+      }
+      row++;
+    }
+
+    _writeTotalRow(sheet, header.length, data.daySummaries.length);
+
+    sheet.getRangeByName('A2').freezePanes();
   }
 
   void _writeCell(Range cell, Object? value) {
