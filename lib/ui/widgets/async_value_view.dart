@@ -124,6 +124,7 @@ void showAppSnackBar(
   BuildContext context,
   String message, {
   bool isError = false,
+  SnackBarAction? action,
 }) {
   final scheme = Theme.of(context).colorScheme;
   final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
@@ -132,7 +133,8 @@ void showAppSnackBar(
     SnackBar(
       content: Text(message),
       backgroundColor: isError ? scheme.errorContainer : null,
-      duration: Duration(seconds: isError ? 5 : 3),
+      duration: Duration(seconds: isError ? 5 : (action != null ? 6 : 3)),
+      action: action,
       margin: const EdgeInsets.all(20),
       padding: const EdgeInsets.symmetric(
         horizontal: 24,

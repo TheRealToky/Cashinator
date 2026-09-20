@@ -30,6 +30,9 @@ dependencies:
   # doubled. See ExcelExporter._normaliseFormulaBytes.
   archive: ^4.0.0
 
+  # System share sheet (WhatsApp, Xender, etc.) for exported files.
+  share_plus: ^13.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -57,15 +57,18 @@ class ExportRepository {
     ExportDataBuilder builder = const ExportDataBuilder(),
     ExpenseExportBuilder expenseBuilder = const ExpenseExportBuilder(),
     ExcelExporter exporter = const ExcelExporter(),
+    Directory? exportDirectoryOverride,
   })  : _builder = builder,
         _expenseBuilder = expenseBuilder,
-        _exporter = exporter;
+        _exporter = exporter,
+        _directoryOverride = exportDirectoryOverride;
 
   final OrderRepository _orders;
   final ExpenseRepository _expenses;
   final ExportDataBuilder _builder;
   final ExpenseExportBuilder _expenseBuilder;
   final ExcelExporter _exporter;
+  final Directory? _directoryOverride;
 
   /// Exports [from]..[to] inclusive.
   ///
@@ -162,6 +165,9 @@ class ExportRepository {
   /// over USB from a laptop without root — that is how the shop moves the file
   /// to whoever runs the downstream script.
   Future<Directory> _exportDirectory() async {
+    final override = _directoryOverride;
+    if (override != null) return override;
+
     try {
       Directory? base;
       if (Platform.isAndroid) {
@@ -177,6 +183,70 @@ class ExportRepository {
         'Could not find a place to save the export.',
         cause: error,
       );
+    }
+  }
+
+  /// The file name that would be used for a sales export across [from]..[to].
+  String salesFileName({required DateTime from, required DateTime to}) =>
+      _fileNameFor(from, to);
+
+  /// The file name that would be used for an expense export across [from]..[to].
+  String expenseFileName({required DateTime from, required DateTime to}) =>
+      _expenseFileNameFor(from, to);
+
+  /// Checks if a sales export file already exists on disk for [from]..[to].
+  Future<File?> findExistingSalesExport({
+    required DateTime from,
+    required DateTime to,
+    Directory? directoryOverride,
+  }) async {
+    try {
+      final directory = directoryOverride ?? await _exportDirectory();
+      final file = File(p.join(directory.path, _fileNameFor(from, to)));
+      return (await file.exists()) ? file : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Checks if an expense export file already exists on disk for [from]..[to].
+  Future<File?> findExistingExpenseExport({
+    required DateTime from,
+    required DateTime to,
+    Directory? directoryOverride,
+  }) async {
+    try {
+      final directory = directoryOverride ?? await _exportDirectory();
+      final file = File(p.join(directory.path, _expenseFileNameFor(from, to)));
+      return (await file.exists()) ? file : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Lists `.xlsx` files currently saved in the exports directory, newest first.
+  Future<List<File>> listRecentExports({
+    Directory? directoryOverride,
+    int limit = 10,
+  }) async {
+    try {
+      final directory = directoryOverride ?? await _exportDirectory();
+      if (!await directory.exists()) return const [];
+      final entities = await directory.list().toList();
+      final files = entities
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.xlsx'))
+          .toList();
+      files.sort((a, b) {
+        try {
+          return b.lastModifiedSync().compareTo(a.lastModifiedSync());
+        } catch (_) {
+          return b.path.compareTo(a.path);
+        }
+      });
+      return files.take(limit).toList();
+    } catch (_) {
+      return const [];
     }
   }
 

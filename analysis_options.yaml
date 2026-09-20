@@ -15,3 +15,7 @@ analyzer:
     # suggested initializing-formal rewrite does not compile. Constructor
     # injection of repositories (state/, export/) hits this deliberately.
     prefer_initializing_formals: ignore
+  exclude:
+    - build/**
+    - android/**
+    - windows/**

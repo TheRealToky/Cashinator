@@ -1,5 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/app_date.dart';
 import '../../core/app_exception.dart';
@@ -10,7 +15,7 @@ import '../widgets/async_value_view.dart';
 /// Which of the two workbooks a run is producing.
 enum _ExportKind { sales, expenses }
 
-/// Date-range picker plus the export triggers.
+/// Date-range picker plus the export triggers and share functionality.
 ///
 /// One range, two files. Sales and expenses are exported separately because
 /// the sales workbook's layout is fixed by the shop's downstream script —
@@ -34,6 +39,10 @@ class _ExportScreenState extends State<ExportScreen> {
   ExportResult? _salesResult;
   ExpenseExportResult? _expenseResult;
 
+  File? _existingSalesFile;
+  File? _existingExpenseFile;
+  List<File> _recentExports = const [];
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +50,7 @@ class _ExportScreenState extends State<ExportScreen> {
     final today = startOfDay(DateTime.now());
     _from = today;
     _to = today;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshFiles());
   }
 
   void _applyPreset({required DateTime from, required DateTime to}) {
@@ -49,12 +59,48 @@ class _ExportScreenState extends State<ExportScreen> {
       _to = to;
       _clearResults();
     });
+    unawaited(_checkExistingForRange());
   }
 
   /// Results name a range, so they stop being true the moment it changes.
   void _clearResults() {
     _salesResult = null;
     _expenseResult = null;
+  }
+
+  Future<void> _refreshFiles() async {
+    await Future.wait([
+      _checkExistingForRange(),
+      _loadRecentExports(),
+    ]);
+  }
+
+  Future<void> _checkExistingForRange() async {
+    if (!mounted) return;
+    final repo = context.read<ExportRepository>();
+    final from = _from;
+    final to = _to;
+
+    final sales = await repo.findExistingSalesExport(from: from, to: to);
+    final expense = await repo.findExistingExpenseExport(from: from, to: to);
+
+    if (!mounted) return;
+    if (from == _from && to == _to) {
+      setState(() {
+        _existingSalesFile = sales;
+        _existingExpenseFile = expense;
+      });
+    }
+  }
+
+  Future<void> _loadRecentExports() async {
+    if (!mounted) return;
+    final repo = context.read<ExportRepository>();
+    final list = await repo.listRecentExports(limit: 6);
+    if (!mounted) return;
+    setState(() {
+      _recentExports = list;
+    });
   }
 
   Future<void> _pick({required bool isStart}) async {
@@ -78,6 +124,7 @@ class _ExportScreenState extends State<ExportScreen> {
       }
       _clearResults();
     });
+    unawaited(_checkExistingForRange());
   }
 
   Future<void> _export() async {
@@ -91,8 +138,19 @@ class _ExportScreenState extends State<ExportScreen> {
           .read<ExportRepository>()
           .exportRange(from: _from, to: _to);
       if (!mounted) return;
-      setState(() => _salesResult = result);
-      showAppSnackBar(context, 'Exported ${result.fileName}.');
+      setState(() {
+        _salesResult = result;
+        _existingSalesFile = result.file;
+      });
+      unawaited(_loadRecentExports());
+      showAppSnackBar(
+        context,
+        'Exported ${result.fileName}.',
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () => _shareFile(result.file),
+        ),
+      );
     } on AppException catch (error) {
       if (!mounted) return;
       showAppSnackBar(context, error.message, isError: true);
@@ -112,13 +170,70 @@ class _ExportScreenState extends State<ExportScreen> {
           .read<ExportRepository>()
           .exportExpenseRange(from: _from, to: _to);
       if (!mounted) return;
-      setState(() => _expenseResult = result);
-      showAppSnackBar(context, 'Exported ${result.fileName}.');
+      setState(() {
+        _expenseResult = result;
+        _existingExpenseFile = result.file;
+      });
+      unawaited(_loadRecentExports());
+      showAppSnackBar(
+        context,
+        'Exported ${result.fileName}.',
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () => _shareFile(result.file),
+        ),
+      );
     } on AppException catch (error) {
       if (!mounted) return;
       showAppSnackBar(context, error.message, isError: true);
     } finally {
       if (mounted) setState(() => _running = null);
+    }
+  }
+
+  Future<void> _shareFile(File file, [BuildContext? buttonContext]) async {
+    if (!await file.exists()) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Export file not found on device.',
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      final fileName = p.basename(file.path);
+      Rect? sharePositionOrigin;
+      if (buttonContext != null && buttonContext.mounted) {
+        final box = buttonContext.findRenderObject() as RenderBox?;
+        if (box != null && box.hasSize) {
+          sharePositionOrigin = box.localToGlobal(Offset.zero) & box.size;
+        }
+      }
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile(
+              file.path,
+              name: fileName,
+              mimeType:
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ),
+          ],
+          text: fileName,
+          subject: fileName,
+          sharePositionOrigin: sharePositionOrigin,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      showAppSnackBar(
+        context,
+        'Could not share file: $error',
+        isError: true,
+      );
     }
   }
 
@@ -214,6 +329,15 @@ class _ExportScreenState extends State<ExportScreen> {
                     '${_salesResult!.dayCount} '
                     'day${_salesResult!.dayCount == 1 ? '' : 's'}',
                 path: _salesResult!.file.path,
+                onShare: (ctx) => _shareFile(_salesResult!.file, ctx),
+              ),
+            ] else if (_existingSalesFile != null) ...[
+              const SizedBox(height: 28),
+              _ExistingExportCard(
+                title: 'Sales export already saved on device',
+                file: _existingSalesFile!,
+                onShare: (ctx) => _shareFile(_existingSalesFile!, ctx),
+                onReExport: _running != null ? null : _export,
               ),
             ],
             if (_expenseResult != null) ...[
@@ -226,10 +350,26 @@ class _ExportScreenState extends State<ExportScreen> {
                     'day${_expenseResult!.dayCount == 1 ? '' : 's'} · '
                     '${formatRwfWithUnit(_expenseResult!.totalSpend)}',
                 path: _expenseResult!.file.path,
+                onShare: (ctx) => _shareFile(_expenseResult!.file, ctx),
+              ),
+            ] else if (_existingExpenseFile != null) ...[
+              const SizedBox(height: 28),
+              _ExistingExportCard(
+                title: 'Expenses export already saved on device',
+                file: _existingExpenseFile!,
+                onShare: (ctx) => _shareFile(_existingExpenseFile!, ctx),
+                onReExport: _running != null ? null : _exportExpenses,
               ),
             ],
             const SizedBox(height: 28),
             const _FormatNote(),
+            if (_recentExports.isNotEmpty) ...[
+              const SizedBox(height: 28),
+              _RecentExportsCard(
+                files: _recentExports,
+                onShareFile: _shareFile,
+              ),
+            ],
           ],
         ),
       ),
@@ -350,11 +490,13 @@ class _ResultCard extends StatelessWidget {
     required this.title,
     required this.summary,
     required this.path,
+    required this.onShare,
   });
 
   final String title;
   final String summary;
   final String path;
+  final void Function(BuildContext context) onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -375,12 +517,14 @@ class _ResultCard extends StatelessWidget {
               Icon(Icons.check_circle_outline,
                   color: scheme.onPrimaryContainer, size: 28),
               const SizedBox(width: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onPrimaryContainer,
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onPrimaryContainer,
+                  ),
                 ),
               ),
             ],
@@ -395,6 +539,212 @@ class _ResultCard extends StatelessWidget {
             path,
             style: TextStyle(fontSize: 14, color: scheme.onPrimaryContainer),
           ),
+          const SizedBox(height: 18),
+          Builder(
+            builder: (btnContext) {
+              return SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: () => onShare(btnContext),
+                  icon: const Icon(Icons.share, size: 22),
+                  label: const Text(
+                    'Share file (WhatsApp, Xender, …)',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExistingExportCard extends StatelessWidget {
+  const _ExistingExportCard({
+    required this.title,
+    required this.file,
+    required this.onShare,
+    this.onReExport,
+  });
+
+  final String title;
+  final File file;
+  final void Function(BuildContext context) onShare;
+  final VoidCallback? onReExport;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final fileName = p.basename(file.path);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.file_present_outlined,
+                  color: scheme.primary, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            fileName,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          SelectableText(
+            file.path,
+            style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              Builder(
+                builder: (btnContext) {
+                  return SizedBox(
+                    height: 50,
+                    child: FilledButton.icon(
+                      onPressed: () => onShare(btnContext),
+                      icon: const Icon(Icons.share, size: 20),
+                      label: const Text(
+                        'Share file (WhatsApp, Xender, …)',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (onReExport != null)
+                SizedBox(
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    onPressed: onReExport,
+                    icon: const Icon(Icons.refresh, size: 20),
+                    label: const Text('Re-generate'),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentExportsCard extends StatelessWidget {
+  const _RecentExportsCard({
+    required this.files,
+    required this.onShareFile,
+  });
+
+  final List<File> files;
+  final void Function(File file, BuildContext context) onShareFile;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history_outlined, color: scheme.primary, size: 26),
+              const SizedBox(width: 12),
+              const Text(
+                'Recent exported files on tablet',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          for (final file in files) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Builder(
+                builder: (rowContext) {
+                  final fileName = p.basename(file.path);
+                  final isExpenses = fileName.contains('expenses');
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.surface,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isExpenses
+                              ? Icons.account_balance_wallet_outlined
+                              : Icons.table_view_outlined,
+                          size: 24,
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            fileName,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          height: 44,
+                          child: FilledButton.tonalIcon(
+                            onPressed: () => onShareFile(file, rowContext),
+                            icon: const Icon(Icons.share, size: 18),
+                            label: const Text('Share'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );
