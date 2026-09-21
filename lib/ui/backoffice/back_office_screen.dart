@@ -14,6 +14,7 @@ import 'expenses_screen.dart';
 import 'export_screen.dart';
 import 'order_history_screen.dart';
 import 'payment_methods_screen.dart';
+import 'production_screen.dart';
 import 'products_screen.dart';
 import 'sample_screen.dart';
 
@@ -173,6 +174,13 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
                   label: 'Expenses',
                   description: 'Record what the shop spends',
                   onTap: () => _openTool(const ExpensesScreen()),
+                ),
+              if (role.canRecordProduction)
+                _ToolTile(
+                  icon: Icons.inventory_2_outlined,
+                  label: 'Record production',
+                  description: 'Log what the kitchen produced',
+                  onTap: () => _openTool(const ProductionScreen()),
                 ),
               if (role.canViewSample)
                 _ToolTile(

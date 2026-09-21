@@ -4,6 +4,7 @@ import 'package:cashinator/data/db/app_database.dart';
 import 'package:cashinator/repositories/expense_repository.dart';
 import 'package:cashinator/repositories/export_repository.dart';
 import 'package:cashinator/repositories/order_repository.dart';
+import 'package:cashinator/repositories/production_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -22,7 +23,8 @@ void main() {
     database = await AppDatabase.open(fileName: inMemoryDatabasePath);
     final orders = OrderRepository(database);
     final expenses = ExpenseRepository(database);
-    exportRepo = ExportRepository(orders, expenses);
+    final production = ProductionRepository(database);
+    exportRepo = ExportRepository(orders, expenses, production);
     tempDir = await Directory.systemTemp.createTemp('cashinator_export_test_');
   });
 

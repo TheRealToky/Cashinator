@@ -53,6 +53,12 @@ enum UserRole {
   /// the office's business.
   bool get canManageExpenses => canManageOrders;
 
+  /// Record what the kitchen produced.
+  ///
+  /// Same access as expenses: a supervisor who reconciles the till can also
+  /// note what was baked that day.
+  bool get canRecordProduction => isBackOffice;
+
   /// Add, edit and deactivate products.
   bool get canManageProducts => this == UserRole.manager;
 

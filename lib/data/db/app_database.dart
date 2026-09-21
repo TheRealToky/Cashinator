@@ -66,6 +66,9 @@ class AppDatabase {
           for (final statement in kCreateExpenseStatements) {
             batch.execute(statement);
           }
+          for (final statement in kCreateProductionStatements) {
+            batch.execute(statement);
+          }
           await batch.commit(noResult: true);
           await _seed(db);
         },
@@ -113,6 +116,15 @@ class AppDatabase {
       // row it had — there is no ALTER, no rebuild and no re-seed here.
       final batch = db.batch();
       for (final statement in kCreateExpenseStatements) {
+        batch.execute(statement);
+      }
+      await batch.commit(noResult: true);
+    }
+
+    if (from < 4) {
+      // Purely additive: creates `production_logs` and its indexes.
+      final batch = db.batch();
+      for (final statement in kMigrateV4Statements) {
         batch.execute(statement);
       }
       await batch.commit(noResult: true);

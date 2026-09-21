@@ -8,6 +8,7 @@ import 'repositories/export_repository.dart';
 import 'repositories/order_repository.dart';
 import 'repositories/payment_method_repository.dart';
 import 'repositories/product_repository.dart';
+import 'repositories/production_repository.dart';
 import 'state/cart_controller.dart';
 import 'state/catalog_controller.dart';
 import 'state/sample_controller.dart';
@@ -40,12 +41,16 @@ class CashinatorApp extends StatelessWidget {
         Provider<ExpenseRepository>(
           create: (_) => ExpenseRepository(database),
         ),
+        Provider<ProductionRepository>(
+          create: (_) => ProductionRepository(database),
+        ),
         Provider<AuthRepository>(
           create: (_) => AuthRepository(database),
         ),
-        ProxyProvider2<OrderRepository, ExpenseRepository, ExportRepository>(
-          update: (_, orders, expenses, __) =>
-              ExportRepository(orders, expenses),
+        ProxyProvider3<OrderRepository, ExpenseRepository, ProductionRepository,
+            ExportRepository>(
+          update: (_, orders, expenses, production, __) =>
+              ExportRepository(orders, expenses, production),
         ),
         // Keeps `previous`, so the held sample draws survive a rebuild — a new
         // controller here would silently redraw behind the manager's back.

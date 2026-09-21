@@ -9,7 +9,8 @@ library;
 /// v2 added the limited back-office `supervisor` role to `app_users`.
 /// v3 added the `expenses` table. Nothing else changed with it — see
 /// [kCreateExpenseStatements].
-const int kSchemaVersion = 3;
+/// v4 added the `production_logs` table. See [kCreateProductionStatements].
+const int kSchemaVersion = 4;
 
 const List<String> kCreateStatements = [
   '''
@@ -137,6 +138,38 @@ const List<String> kCreateExpenseStatements = [
   ''',
 ];
 
+/// The `production_logs` table, added in v4.
+///
+/// Records how many units of each product the kitchen produced in a given
+/// session. A session is simply a shared [recorded_at] timestamp — no separate
+/// session row is needed because the datetime is the only thing that groups
+/// the lines together. Kept in its own list for the same reason as
+/// [kCreateExpenseStatements]: it is both half of `onCreate` on a fresh
+/// tablet and the whole of the v4 migration on an existing one, and the two
+/// must not drift apart.
+const List<String> kCreateProductionStatements = [
+  '''
+  CREATE TABLE IF NOT EXISTS production_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id    INTEGER REFERENCES products (id),
+    product_name  TEXT    NOT NULL,
+    category      TEXT,
+    unit_price    INTEGER NOT NULL CHECK (unit_price >= 0),
+    qty           INTEGER NOT NULL CHECK (qty > 0),
+    business_date TEXT    NOT NULL,
+    recorded_at   TEXT    NOT NULL
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_production_logs_business_date
+    ON production_logs (business_date)
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_production_logs_recorded_at
+    ON production_logs (recorded_at)
+  ''',
+];
+
 /// Migration to schema v2: admit the limited back-office `supervisor` role.
 ///
 /// SQLite cannot ALTER a CHECK constraint in place, so `app_users` is rebuilt
@@ -161,6 +194,13 @@ const List<String> kMigrateV2Statements = [
   'DROP TABLE app_users',
   'ALTER TABLE app_users_new RENAME TO app_users',
 ];
+
+/// Migration to schema v4: add the `production_logs` table.
+///
+/// Purely additive — creates the table and its indexes, reads nothing. A
+/// tablet already holding months of sales and expenses keeps every existing
+/// row unchanged.
+const List<String> kMigrateV4Statements = kCreateProductionStatements;
 
 /// Matches the shop's current ledger vocabulary.
 const List<Map<String, Object?>> kSeedPaymentMethods = [
