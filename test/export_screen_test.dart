@@ -5,6 +5,7 @@ import 'package:cashinator/repositories/expense_repository.dart';
 import 'package:cashinator/repositories/export_repository.dart';
 import 'package:cashinator/repositories/order_repository.dart';
 import 'package:cashinator/repositories/production_repository.dart';
+import 'package:cashinator/repositories/unsold_repository.dart';
 import 'package:cashinator/ui/backoffice/export_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +23,7 @@ void main() {
   late OrderRepository orders;
   late ExpenseRepository expenses;
   late ProductionRepository production;
+  late UnsoldRepository unsold;
   late ExportRepository exportRepo;
   late Directory tempDir;
 
@@ -30,11 +32,13 @@ void main() {
     orders = OrderRepository(database);
     expenses = ExpenseRepository(database);
     production = ProductionRepository(database);
+    unsold = UnsoldRepository(database);
     tempDir = await Directory.systemTemp.createTemp('cashinator_screen_test_');
     exportRepo = ExportRepository(
       orders,
       expenses,
       production,
+      unsold,
       exportDirectoryOverride: tempDir,
     );
   });
@@ -50,6 +54,7 @@ void main() {
         Provider<OrderRepository>.value(value: orders),
         Provider<ExpenseRepository>.value(value: expenses),
         Provider<ProductionRepository>.value(value: production),
+        Provider<UnsoldRepository>.value(value: unsold),
         Provider<ExportRepository>.value(value: repo ?? exportRepo),
       ],
       child: const MaterialApp(
@@ -66,6 +71,7 @@ void main() {
     expect(find.text('Sales Excel file'), findsOneWidget);
     expect(find.text('Expenses Excel file'), findsOneWidget);
     expect(find.text('Production Excel file'), findsOneWidget);
+    expect(find.text('Unsold Excel file'), findsOneWidget);
   });
 
   testWidgets('shows share button when existing export file is found',

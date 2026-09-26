@@ -6,12 +6,14 @@ import 'package:path_provider/path_provider.dart';
 import '../core/app_date.dart';
 import '../core/app_exception.dart';
 import '../export/excel_exporter.dart';
-import '../export/export_data.dart';
 import '../export/expense_export_data.dart';
+import '../export/export_data.dart';
 import '../export/production_export_data.dart';
+import '../export/unsold_export_data.dart';
 import 'expense_repository.dart';
 import 'order_repository.dart';
 import 'production_repository.dart';
+import 'unsold_repository.dart';
 
 /// The result of a successful export.
 class ExportResult {
@@ -72,30 +74,57 @@ class ProductionExportResult {
   String get fileName => p.basename(file.path);
 }
 
-/// Pulls orders, expenses or production logs for a date range, renders the
-/// workbook and writes it to disk.
+/// The result of a successful unsold export.
+class UnsoldExportResult {
+  const UnsoldExportResult({
+    required this.file,
+    required this.rowCount,
+    required this.dayCount,
+    required this.totalValue,
+  });
+
+  final File file;
+
+  /// Number of product lines exported.
+  final int rowCount;
+
+  final int dayCount;
+
+  /// Whole RWF value of all unsold units across the range.
+  final int totalValue;
+
+  String get fileName => p.basename(file.path);
+}
+
+/// Pulls orders, expenses, production logs or unsold logs for a date range,
+/// renders the workbook and writes it to disk.
 class ExportRepository {
   ExportRepository(
     this._orders,
     this._expenses,
-    this._production, {
+    this._production,
+    this._unsold, {
     ExportDataBuilder builder = const ExportDataBuilder(),
     ExpenseExportBuilder expenseBuilder = const ExpenseExportBuilder(),
     ProductionExportBuilder productionBuilder = const ProductionExportBuilder(),
+    UnsoldExportBuilder unsoldBuilder = const UnsoldExportBuilder(),
     ExcelExporter exporter = const ExcelExporter(),
     Directory? exportDirectoryOverride,
   })  : _builder = builder,
         _expenseBuilder = expenseBuilder,
         _productionBuilder = productionBuilder,
+        _unsoldBuilder = unsoldBuilder,
         _exporter = exporter,
         _directoryOverride = exportDirectoryOverride;
 
   final OrderRepository _orders;
   final ExpenseRepository _expenses;
   final ProductionRepository _production;
+  final UnsoldRepository _unsold;
   final ExportDataBuilder _builder;
   final ExpenseExportBuilder _expenseBuilder;
   final ProductionExportBuilder _productionBuilder;
+  final UnsoldExportBuilder _unsoldBuilder;
   final ExcelExporter _exporter;
   final Directory? _directoryOverride;
 
@@ -237,6 +266,51 @@ class ExportRepository {
     );
   }
 
+  /// Exports the unsold logs recorded in [from]..[to] inclusive.
+  ///
+  /// Throws [NotFoundException] when the range holds no logs.
+  Future<UnsoldExportResult> exportUnsoldRange({
+    required DateTime from,
+    required DateTime to,
+    Directory? directoryOverride,
+  }) async {
+    final logs = await _unsold.logsInRange(from: from, to: to);
+    if (logs.isEmpty) {
+      throw const NotFoundException(
+        'There are no unsold records in that date range yet.',
+      );
+    }
+
+    final data = _unsoldBuilder.build(logs: logs, from: from, to: to);
+    final bytes = _exporter.buildUnsoldWorkbookBytes(data);
+
+    final directory = directoryOverride ?? await _exportDirectory();
+    final file = File(
+      p.join(directory.path, _unsoldFileNameFor(from, to)),
+    );
+
+    try {
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes, flush: true);
+    } on FileSystemException catch (error) {
+      throw StorageException(
+        'Could not write the export file. Check that the tablet has free '
+        'storage space.',
+        cause: error,
+      );
+    }
+
+    return UnsoldExportResult(
+      file: file,
+      rowCount: data.lines.length,
+      dayCount: data.daySummaries.length,
+      totalValue: data.daySummaries.fold(
+        0,
+        (sum, summary) => sum + summary.totalValue,
+      ),
+    );
+  }
+
   /// Where exports land on the tablet.
   ///
   /// Uses the app's external files directory on Android, which is reachable
@@ -275,6 +349,10 @@ class ExportRepository {
   /// The file name that would be used for a production export across [from]..[to].
   String productionFileName({required DateTime from, required DateTime to}) =>
       _productionFileNameFor(from, to);
+
+  /// The file name that would be used for an unsold export across [from]..[to].
+  String unsoldFileName({required DateTime from, required DateTime to}) =>
+      _unsoldFileNameFor(from, to);
 
   /// Checks if a sales export file already exists on disk for [from]..[to].
   Future<File?> findExistingSalesExport({
@@ -322,6 +400,22 @@ class ExportRepository {
     }
   }
 
+  /// Checks if an unsold export file already exists on disk for [from]..[to].
+  Future<File?> findExistingUnsoldExport({
+    required DateTime from,
+    required DateTime to,
+    Directory? directoryOverride,
+  }) async {
+    try {
+      final directory = directoryOverride ?? await _exportDirectory();
+      final file =
+          File(p.join(directory.path, _unsoldFileNameFor(from, to)));
+      return (await file.exists()) ? file : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Lists `.xlsx` files currently saved in the exports directory, newest first.
   Future<List<File>> listRecentExports({
     Directory? directoryOverride,
@@ -361,6 +455,10 @@ class ExportRepository {
   /// `pastry_production_YYYY-MM-DD.xlsx`. Sorts alongside sales and expenses.
   String _productionFileNameFor(DateTime from, DateTime to) =>
       _rangeFileName('pastry_production', from, to);
+
+  /// `pastry_unsold_YYYY-MM-DD.xlsx`. Sorts alongside sales, expenses and production.
+  String _unsoldFileNameFor(DateTime from, DateTime to) =>
+      _rangeFileName('pastry_unsold', from, to);
 
   String _rangeFileName(String prefix, DateTime from, DateTime to) {
     final fromIso = formatIsoDate(from);

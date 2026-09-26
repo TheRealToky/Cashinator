@@ -10,6 +10,8 @@ import 'expense_export_data.dart';
 import 'expense_export_format.dart';
 import 'production_export_data.dart';
 import 'production_export_format.dart';
+import 'unsold_export_data.dart';
+import 'unsold_export_format.dart';
 
 /// Writes an export out as `.xlsx`: [ExportWorkbookData] in the legacy sales
 /// layout, or [ExpenseWorkbookData] in the expenses layout.
@@ -88,6 +90,31 @@ class ExcelExporter {
       final summarySheet =
           workbook.worksheets.addWithName(kProductionDaySummarySheetName);
       _writeProductionDaySummary(summarySheet, data);
+
+      return _normaliseFormulaBytes(workbook.saveAsStream());
+    } on Object catch (error) {
+      throw StorageException(
+        'Could not generate the Excel file.',
+        cause: error,
+      );
+    } finally {
+      workbook.dispose();
+    }
+  }
+
+  /// Renders the unsold workbook and returns its bytes.
+  ///
+  /// Two sheets: an `Unsold Lines` detail sheet and a `Day Summary` sheet.
+  List<int> buildUnsoldWorkbookBytes(UnsoldWorkbookData data) {
+    final workbook = Workbook();
+    try {
+      final linesSheet = workbook.worksheets[0];
+      linesSheet.name = kUnsoldLinesSheetName;
+      _writeUnsoldLines(linesSheet, data);
+
+      final summarySheet =
+          workbook.worksheets.addWithName(kUnsoldDaySummarySheetName);
+      _writeUnsoldDaySummary(summarySheet, data);
 
       return _normaliseFormulaBytes(workbook.saveAsStream());
     } on Object catch (error) {
@@ -361,6 +388,63 @@ class ExcelExporter {
 
     _writeTotalRow(
         sheet, kProductionDaySummaryHeader.length, data.daySummaries.length);
+
+    sheet.getRangeByName('A2').freezePanes();
+  }
+
+  void _writeUnsoldLines(Worksheet sheet, UnsoldWorkbookData data) {
+    for (var column = 0; column < kUnsoldLinesHeader.length; column++) {
+      final cell = sheet.getRangeByIndex(1, column + 1);
+      cell.setText(kUnsoldLinesHeader[column]);
+      _styleHeaderCell(cell);
+      sheet.getRangeByIndex(1, column + 1).columnWidth =
+          kUnsoldLinesColumnWidths[column];
+    }
+
+    var row = 2;
+    for (final line in data.lines) {
+      final cells = line.toCells();
+      for (var column = 0; column < cells.length; column++) {
+        _writeCell(sheet.getRangeByIndex(row, column + 1), cells[column]);
+      }
+      row++;
+    }
+
+    sheet.getRangeByName('A2').freezePanes();
+    sheet.autoFilters.filterRange = sheet.getRangeByName(
+      'A1:${_columnLetter(kUnsoldLinesHeader.length)}1',
+    );
+  }
+
+  void _writeUnsoldDaySummary(Worksheet sheet, UnsoldWorkbookData data) {
+    for (var column = 0;
+        column < kUnsoldDaySummaryHeader.length;
+        column++) {
+      final cell = sheet.getRangeByIndex(1, column + 1);
+      cell.setText(kUnsoldDaySummaryHeader[column]);
+      _styleHeaderCell(cell);
+    }
+
+    sheet.getRangeByIndex(1, 1).columnWidth = 13;
+    sheet.getRangeByIndex(1, 2).columnWidth = 18;
+    sheet.getRangeByIndex(1, 3).columnWidth = 11;
+    sheet.getRangeByIndex(1, 4).columnWidth = 18;
+
+    var row = 2;
+    for (final summary in data.daySummaries) {
+      final cells = summary.toCells();
+      for (var column = 0; column < cells.length; column++) {
+        final cell = sheet.getRangeByIndex(row, column + 1);
+        _writeCell(cell, cells[column]);
+        cell.cellStyle.backColor = kSummaryRowBackColor;
+        cell.cellStyle.hAlign = HAlignType.center;
+        cell.cellStyle.fontSize = kBodyFontSize;
+      }
+      row++;
+    }
+
+    _writeTotalRow(
+        sheet, kUnsoldDaySummaryHeader.length, data.daySummaries.length);
 
     sheet.getRangeByName('A2').freezePanes();
   }

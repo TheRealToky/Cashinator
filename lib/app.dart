@@ -51,10 +51,10 @@ class CashinatorApp extends StatelessWidget {
         Provider<AuthRepository>(
           create: (_) => AuthRepository(database),
         ),
-        ProxyProvider3<OrderRepository, ExpenseRepository, ProductionRepository,
-            ExportRepository>(
-          update: (_, orders, expenses, production, __) =>
-              ExportRepository(orders, expenses, production),
+        ProxyProvider4<OrderRepository, ExpenseRepository, ProductionRepository,
+            UnsoldRepository, ExportRepository>(
+          update: (_, orders, expenses, production, unsold, __) =>
+              ExportRepository(orders, expenses, production, unsold),
         ),
         // Keeps `previous`, so the held sample draws survive a rebuild — a new
         // controller here would silently redraw behind the manager's back.

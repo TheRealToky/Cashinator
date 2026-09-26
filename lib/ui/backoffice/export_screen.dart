@@ -12,12 +12,12 @@ import '../../core/money.dart';
 import '../../repositories/export_repository.dart';
 import '../widgets/async_value_view.dart';
 
-/// Which of the three workbooks a run is producing.
-enum _ExportKind { sales, expenses, production }
+/// Which of the four workbooks a run is producing.
+enum _ExportKind { sales, expenses, production, unsold }
 
 /// Date-range picker plus the export triggers and share functionality.
 ///
-/// One range, three files. Sales, expenses and production are exported
+/// One range, four files. Sales, expenses, production and unsold are exported
 /// separately so each file keeps a clean focus and the sales workbook's layout
 /// — fixed by the shop's downstream script — is never disturbed.
 class ExportScreen extends StatefulWidget {
@@ -38,10 +38,12 @@ class _ExportScreenState extends State<ExportScreen> {
   ExportResult? _salesResult;
   ExpenseExportResult? _expenseResult;
   ProductionExportResult? _productionResult;
+  UnsoldExportResult? _unsoldResult;
 
   File? _existingSalesFile;
   File? _existingExpenseFile;
   File? _existingProductionFile;
+  File? _existingUnsoldFile;
   List<File> _recentExports = const [];
 
   @override
@@ -68,6 +70,7 @@ class _ExportScreenState extends State<ExportScreen> {
     _salesResult = null;
     _expenseResult = null;
     _productionResult = null;
+    _unsoldResult = null;
   }
 
   Future<void> _refreshFiles() async {
@@ -87,6 +90,8 @@ class _ExportScreenState extends State<ExportScreen> {
     final expense = await repo.findExistingExpenseExport(from: from, to: to);
     final production =
         await repo.findExistingProductionExport(from: from, to: to);
+    final unsold =
+        await repo.findExistingUnsoldExport(from: from, to: to);
 
     if (!mounted) return;
     if (from == _from && to == _to) {
@@ -94,6 +99,7 @@ class _ExportScreenState extends State<ExportScreen> {
         _existingSalesFile = sales;
         _existingExpenseFile = expense;
         _existingProductionFile = production;
+        _existingUnsoldFile = unsold;
       });
     }
   }
@@ -210,6 +216,38 @@ class _ExportScreenState extends State<ExportScreen> {
       setState(() {
         _productionResult = result;
         _existingProductionFile = result.file;
+      });
+      unawaited(_loadRecentExports());
+      showAppSnackBar(
+        context,
+        'Exported ${result.fileName}.',
+        action: SnackBarAction(
+          label: 'Share',
+          onPressed: () => _shareFile(result.file),
+        ),
+      );
+    } on AppException catch (error) {
+      if (!mounted) return;
+      showAppSnackBar(context, error.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _running = null);
+    }
+  }
+
+  Future<void> _exportUnsold() async {
+    setState(() {
+      _running = _ExportKind.unsold;
+      _unsoldResult = null;
+    });
+
+    try {
+      final result = await context
+          .read<ExportRepository>()
+          .exportUnsoldRange(from: _from, to: _to);
+      if (!mounted) return;
+      setState(() {
+        _unsoldResult = result;
+        _existingUnsoldFile = result.file;
       });
       unawaited(_loadRecentExports());
       showAppSnackBar(
@@ -366,6 +404,15 @@ class _ExportScreenState extends State<ExportScreen> {
                     onPressed: _running != null ? null : _exportProduction,
                   ),
                 ),
+                SizedBox(
+                  width: double.infinity,
+                  child: _ExportButton(
+                    label: 'Unsold Excel file',
+                    icon: Icons.remove_shopping_cart_outlined,
+                    running: _running == _ExportKind.unsold,
+                    onPressed: _running != null ? null : _exportUnsold,
+                  ),
+                ),
               ],
             ),
             if (_salesResult != null) ...[
@@ -430,6 +477,27 @@ class _ExportScreenState extends State<ExportScreen> {
                 file: _existingProductionFile!,
                 onShare: (ctx) => _shareFile(_existingProductionFile!, ctx),
                 onReExport: _running != null ? null : _exportProduction,
+              ),
+            ],
+            if (_unsoldResult != null) ...[
+              const SizedBox(height: 28),
+              _ResultCard(
+                title: 'Unsold export ready',
+                summary: '${_unsoldResult!.rowCount} '
+                    'line${_unsoldResult!.rowCount == 1 ? '' : 's'} · '
+                    '${_unsoldResult!.dayCount} '
+                    'day${_unsoldResult!.dayCount == 1 ? '' : 's'} · '
+                    '${formatRwfWithUnit(_unsoldResult!.totalValue)}',
+                path: _unsoldResult!.file.path,
+                onShare: (ctx) => _shareFile(_unsoldResult!.file, ctx),
+              ),
+            ] else if (_existingUnsoldFile != null) ...[
+              const SizedBox(height: 28),
+              _ExistingExportCard(
+                title: 'Unsold export already saved on device',
+                file: _existingUnsoldFile!,
+                onShare: (ctx) => _shareFile(_existingUnsoldFile!, ctx),
+                onReExport: _running != null ? null : _exportUnsold,
               ),
             ],
             const SizedBox(height: 28),
@@ -772,6 +840,7 @@ class _RecentExportsCard extends StatelessWidget {
                   final fileName = p.basename(file.path);
                   final isExpenses = fileName.contains('expenses');
                   final isProduction = fileName.contains('production');
+                  final isUnsold = fileName.contains('unsold');
                   return Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -784,11 +853,13 @@ class _RecentExportsCard extends StatelessWidget {
                     child: Row(
                       children: [
                         Icon(
-                          isProduction
-                              ? Icons.inventory_2_outlined
-                              : isExpenses
-                                  ? Icons.account_balance_wallet_outlined
-                                  : Icons.table_view_outlined,
+                          isUnsold
+                              ? Icons.remove_shopping_cart_outlined
+                              : isProduction
+                                  ? Icons.inventory_2_outlined
+                                  : isExpenses
+                                      ? Icons.account_balance_wallet_outlined
+                                      : Icons.table_view_outlined,
                           size: 24,
                           color: scheme.primary,
                         ),

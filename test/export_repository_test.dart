@@ -5,6 +5,7 @@ import 'package:cashinator/repositories/expense_repository.dart';
 import 'package:cashinator/repositories/export_repository.dart';
 import 'package:cashinator/repositories/order_repository.dart';
 import 'package:cashinator/repositories/production_repository.dart';
+import 'package:cashinator/repositories/unsold_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -24,7 +25,8 @@ void main() {
     final orders = OrderRepository(database);
     final expenses = ExpenseRepository(database);
     final production = ProductionRepository(database);
-    exportRepo = ExportRepository(orders, expenses, production);
+    final unsold = UnsoldRepository(database);
+    exportRepo = ExportRepository(orders, expenses, production, unsold);
     tempDir = await Directory.systemTemp.createTemp('cashinator_export_test_');
   });
 
@@ -64,6 +66,20 @@ void main() {
       );
     });
 
+    test('names single-day and range unsold files correctly', () {
+      final day1 = DateTime(2026, 9, 9);
+      final day2 = DateTime(2026, 9, 10);
+
+      expect(
+        exportRepo.unsoldFileName(from: day1, to: day1),
+        'pastry_unsold_2026-09-09.xlsx',
+      );
+      expect(
+        exportRepo.unsoldFileName(from: day1, to: day2),
+        'pastry_unsold_2026-09-09_to_2026-09-10.xlsx',
+      );
+    });
+
     test('findExistingSalesExport and findExistingExpenseExport locate files',
         () async {
       final day = DateTime(2026, 9, 9);
@@ -96,6 +112,18 @@ void main() {
       );
       expect(foundExpense, isNotNull);
       expect(foundExpense!.path, expenseFile.path);
+
+      final unsoldFile =
+          File(p.join(tempDir.path, 'pastry_unsold_2026-09-09.xlsx'));
+      await unsoldFile.writeAsString('mock content');
+
+      final foundUnsold = await exportRepo.findExistingUnsoldExport(
+        from: day,
+        to: day,
+        directoryOverride: tempDir,
+      );
+      expect(foundUnsold, isNotNull);
+      expect(foundUnsold!.path, unsoldFile.path);
     });
 
     test('listRecentExports returns .xlsx files sorted newest first', () async {
