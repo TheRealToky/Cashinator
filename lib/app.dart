@@ -9,6 +9,7 @@ import 'repositories/order_repository.dart';
 import 'repositories/payment_method_repository.dart';
 import 'repositories/product_repository.dart';
 import 'repositories/production_repository.dart';
+import 'repositories/unsold_repository.dart';
 import 'state/cart_controller.dart';
 import 'state/catalog_controller.dart';
 import 'state/sample_controller.dart';
@@ -43,6 +44,9 @@ class CashinatorApp extends StatelessWidget {
         ),
         Provider<ProductionRepository>(
           create: (_) => ProductionRepository(database),
+        ),
+        Provider<UnsoldRepository>(
+          create: (_) => UnsoldRepository(database),
         ),
         Provider<AuthRepository>(
           create: (_) => AuthRepository(database),

@@ -10,7 +10,8 @@ library;
 /// v3 added the `expenses` table. Nothing else changed with it — see
 /// [kCreateExpenseStatements].
 /// v4 added the `production_logs` table. See [kCreateProductionStatements].
-const int kSchemaVersion = 4;
+/// v5 added the `unsold_logs` table. See [kCreateUnsoldStatements].
+const int kSchemaVersion = 5;
 
 const List<String> kCreateStatements = [
   '''
@@ -170,6 +171,34 @@ const List<String> kCreateProductionStatements = [
   ''',
 ];
 
+/// The `unsold_logs` table, added in v5.
+///
+/// Records how many units of each product remained unsold at the end of the
+/// day. Like production logs, several [UnsoldLog] rows share a [recorded_at]
+/// timestamp representing one session.
+const List<String> kCreateUnsoldStatements = [
+  '''
+  CREATE TABLE IF NOT EXISTS unsold_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id    INTEGER REFERENCES products (id),
+    product_name  TEXT    NOT NULL,
+    category      TEXT,
+    unit_price    INTEGER NOT NULL CHECK (unit_price >= 0),
+    qty           INTEGER NOT NULL CHECK (qty > 0),
+    business_date TEXT    NOT NULL,
+    recorded_at   TEXT    NOT NULL
+  )
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_unsold_logs_business_date
+    ON unsold_logs (business_date)
+  ''',
+  '''
+  CREATE INDEX IF NOT EXISTS idx_unsold_logs_recorded_at
+    ON unsold_logs (recorded_at)
+  ''',
+];
+
 /// Migration to schema v2: admit the limited back-office `supervisor` role.
 ///
 /// SQLite cannot ALTER a CHECK constraint in place, so `app_users` is rebuilt
@@ -201,6 +230,11 @@ const List<String> kMigrateV2Statements = [
 /// tablet already holding months of sales and expenses keeps every existing
 /// row unchanged.
 const List<String> kMigrateV4Statements = kCreateProductionStatements;
+
+/// Migration to schema v5: add the `unsold_logs` table.
+///
+/// Purely additive — creates the table and its indexes, reads nothing.
+const List<String> kMigrateV5Statements = kCreateUnsoldStatements;
 
 /// Matches the shop's current ledger vocabulary.
 const List<Map<String, Object?>> kSeedPaymentMethods = [

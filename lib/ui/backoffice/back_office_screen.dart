@@ -14,9 +14,12 @@ import 'expenses_screen.dart';
 import 'export_screen.dart';
 import 'order_history_screen.dart';
 import 'payment_methods_screen.dart';
+import 'production_history_screen.dart';
 import 'production_screen.dart';
 import 'products_screen.dart';
 import 'sample_screen.dart';
+import 'unsold_history_screen.dart';
+import 'unsold_screen.dart';
 
 /// Management landing screen: today at a glance, then the tools this role is
 /// allowed to open.
@@ -181,6 +184,27 @@ class _BackOfficeScreenState extends State<BackOfficeScreen> {
                   label: 'Record production',
                   description: 'Log what the kitchen produced',
                   onTap: () => _openTool(const ProductionScreen()),
+                ),
+              if (role.canViewProductionHistory)
+                _ToolTile(
+                  icon: Icons.precision_manufacturing_outlined,
+                  label: 'Production history',
+                  description: 'Browse daily production logs',
+                  onTap: () => _openTool(const ProductionHistoryScreen()),
+                ),
+              if (role.canRecordUnsold)
+                _ToolTile(
+                  icon: Icons.remove_shopping_cart_outlined,
+                  label: 'Record unsold',
+                  description: 'Log end-of-day unsold products',
+                  onTap: () => _openTool(const UnsoldScreen()),
+                ),
+              if (role.canViewUnsoldHistory)
+                _ToolTile(
+                  icon: Icons.event_busy_outlined,
+                  label: 'Unsold history',
+                  description: 'Browse daily unsold logs',
+                  onTap: () => _openTool(const UnsoldHistoryScreen()),
                 ),
               if (role.canViewSample)
                 _ToolTile(

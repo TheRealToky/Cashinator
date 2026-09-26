@@ -91,5 +91,3 @@ void main() {
     expect(find.text('Share file (WhatsApp, Xender, …)'), findsOneWidget);
   });
 }
-
-}

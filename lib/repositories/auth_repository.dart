@@ -59,6 +59,15 @@ enum UserRole {
   /// note what was baked that day.
   bool get canRecordProduction => isBackOffice;
 
+  /// Browse daily production logs.
+  bool get canViewProductionHistory => isBackOffice;
+
+  /// Record end-of-day unsold products.
+  bool get canRecordUnsold => isBackOffice;
+
+  /// Browse daily unsold logs.
+  bool get canViewUnsoldHistory => isBackOffice;
+
   /// Add, edit and deactivate products.
   bool get canManageProducts => this == UserRole.manager;
 

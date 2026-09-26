@@ -69,6 +69,9 @@ class AppDatabase {
           for (final statement in kCreateProductionStatements) {
             batch.execute(statement);
           }
+          for (final statement in kCreateUnsoldStatements) {
+            batch.execute(statement);
+          }
           await batch.commit(noResult: true);
           await _seed(db);
         },
@@ -125,6 +128,15 @@ class AppDatabase {
       // Purely additive: creates `production_logs` and its indexes.
       final batch = db.batch();
       for (final statement in kMigrateV4Statements) {
+        batch.execute(statement);
+      }
+      await batch.commit(noResult: true);
+    }
+
+    if (from < 5) {
+      // Purely additive: creates `unsold_logs` and its indexes.
+      final batch = db.batch();
+      for (final statement in kMigrateV5Statements) {
         batch.execute(statement);
       }
       await batch.commit(noResult: true);
